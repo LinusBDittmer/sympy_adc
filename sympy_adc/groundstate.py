@@ -2,7 +2,7 @@ from sympy import Rational, latex, sympify, Mul, S
 from sympy.physics.secondquant import NO, F, Fd
 from math import factorial
 
-from .sympy_objects import AntiSymmetricTensor
+from .sympy_objects import (AntiSymmetricTensor, RotationTensor)
 from .indices import Indices, n_ov_from_space
 from .misc import (cached_member, Inputerror,
                    process_arguments, transform_to_tuple, validate_input)
@@ -13,12 +13,13 @@ from .operators import Operators
 
 
 class GroundState:
-    def __init__(self, hamiltonian, first_order_singles=False):
+    def __init__(self, hamiltonian, first_order_singles=False, canonical=True):
         if not isinstance(hamiltonian, Operators):
             raise Inputerror('Invalid hamiltonian.')
         self.indices = Indices()
         self.h = hamiltonian
         self.singles = first_order_singles
+        self.canonical = canonical
 
     @process_arguments
     @cached_member
@@ -76,6 +77,8 @@ class GroundState:
         }
         get_ov = get_ov[braket]
         idx = {'occ': [], 'virt': []}
+        if not self.canonical:
+            rot_idx = {'occ': [], 'virt': []}
         psi = 0
         for excitation in range(1, order * 2 + 1):
             # generate 1 additional o/v symbol pair, e.g. singles: ia,
@@ -83,6 +86,10 @@ class GroundState:
             additional_idx = self.indices.get_generic_indices(n_o=1, n_v=1)
             idx['occ'].extend(additional_idx['occ'])
             idx['virt'].extend(additional_idx['virt'])
+            if not self.canonical:
+                additional_rot_idx = self.indices.get_generic_indices(n_o=1, n_v=1)
+                rot_idx['occ'].extend(additional_rot_idx['occ'])
+                rot_idx['virt'].extend(additional_rot_idx['virt']) 
             # skip singles for the first order wavefunction if
             # they are not requested
             if order == 1 and not self.singles and excitation == 1:
@@ -90,8 +97,13 @@ class GroundState:
             t = AntiSymmetricTensor(
                 tensor_string[braket], idx["virt"], idx["occ"]
             )
-            operators = Mul(*[Fd(s) for s in idx[get_ov('virt')]]) * \
-                Mul(*[F(s) for s in reversed(idx[get_ov('occ')])])
+            if self.canonical:
+                operators = Mul(*[Fd(s) for s in idx[get_ov('virt')]]) * \
+                    Mul(*[F(s) for s in reversed(idx[get_ov('occ')])])
+            else:
+                op_occ = [RotationTensor(None, (s, rot_idx[get_ov('occ')][jocc])) * F(s) for jocc, s in enumerate(idx[get_ov('occ')])]
+                op_virt = [RotationTensor(None, (s, rot_idx[get_ov('virt')][jvirt])) * Fd(s) for jvirt, s in enumerate(idx[get_ov('virt')])]
+                operators = Mul(*op_virt) * Mul(*op_occ)
             # prefactor for lifting index restrictions
             prefactor = Rational(1, factorial(excitation) ** 2)
             # For signs: Decided to subtract all Doubles to stay consistent

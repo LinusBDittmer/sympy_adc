@@ -142,6 +142,15 @@ class NonSymmetricTensor(TensorSymbol):
     def __str__(self):
         return "%s%s" % self.args
 
+class RotationTensor(NonSymmetricTensor):
+    """
+    Used to represent the unitary transformation between the canonical and
+    non-canonical basis.
+    """
+
+    def __new__(cls, symbol: str, indices: tuple[Dummy]) -> NonSymmetricTensor:
+        return super().__new__(cls, "U", indices)
+
 
 class SingleSymmetryTensor(TensorSymbol):
     def __new__(cls, symbol: str, indices: tuple[Dummy],

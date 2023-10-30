@@ -1,7 +1,7 @@
 from .indices import (index_space, get_lowest_avail_indices, get_symbols,
                       order_substitutions, idx_sort_key)
 from .misc import Inputerror, cached_property, cached_member
-from .sympy_objects import NonSymmetricTensor, AntiSymmetricTensor
+from .sympy_objects import NonSymmetricTensor, AntiSymmetricTensor, RotationTensor
 from sympy import latex, Add, Mul, Pow, sympify, S, Dummy, Basic, nsimplify
 from sympy.physics.secondquant import NO, F, Fd, KroneckerDelta
 
@@ -1306,6 +1306,7 @@ class Obj(Container):
             F: 'annihilate',
             Fd: 'create',
             NonSymmetricTensor: 'nonsymtensor',
+            RotationTensor: 'rottensor'
         }
         try:
             return types[type(self.extract_pow)]
@@ -1419,7 +1420,8 @@ class Obj(Container):
             'delta': lambda o: o.args,
             'annihilate': lambda o: o.args,
             'create': lambda o: o.args,
-            'nonsymtensor': lambda o: o.indices
+            'nonsymtensor': lambda o: o.indices,
+            'rottensor': lambda o: o.indices
         }
         try:
             return get_idx[self.type](self.extract_pow)
