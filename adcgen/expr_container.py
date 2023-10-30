@@ -8,7 +8,6 @@ from sympy import latex, Add, Mul, Pow, sympify, S, Basic, nsimplify
 from sympy.physics.secondquant import NO, F, Fd
 import warnings
 
-
 class Container:
     """Base class for all container classes."""
 
