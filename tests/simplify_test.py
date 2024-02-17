@@ -1,9 +1,9 @@
 from sympy_adc.simplify import simplify_unitary
-from sympy_adc.sympy_objects import NonSymmetricTensor, AntiSymmetricTensor
+from sympy_adc.sympy_objects import NonSymmetricTensor, AntiSymmetricTensor, \
+    KroneckerDelta
 from sympy_adc.expr_container import Expr
 from sympy_adc.indices import get_symbols
 
-from sympy.physics.secondquant import KroneckerDelta
 from sympy import S
 
 
