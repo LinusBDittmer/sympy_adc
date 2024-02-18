@@ -13,7 +13,7 @@ contraction_data = namedtuple('contraction_data',
 
 def generate_code(expr: e.Expr, target_indices: str, backend: str,
                   bra_ket_sym: int = 0, max_tensor_dim: int = None,
-                  optimize_contractions: bool = True) -> str:
+                  optimize_contractions: bool = True, itmd_start_idx: int = -1) -> str:
     """Transforms an expression to contractions using either einsum (python)
        or libtensor (C++) syntax. Additionally, the computational and the
        memory scaling of each term is given as comment after each contraction
@@ -33,10 +33,10 @@ def generate_code(expr: e.Expr, target_indices: str, backend: str,
             # nonsym_tensor / antisym_tensor / delta
             # -> extract relevant data
             if 'tensor' in (o_type := o.type) or o_type == 'delta':
-                o_idx.append(i for _ in range(o.exponent))
-                names.append(o.pretty_name for _ in range(o.exponent))
+                o_idx.extend(i for _ in range(o.exponent))
+                names.extend(o.pretty_name for _ in range(o.exponent))
                 idx = o.idx
-                indices.append(idx for _ in range(o.exponent))
+                indices.extend(idx for _ in range(o.exponent))
                 contracted.update(s for s in idx if s not in target)
             elif o_type == 'prefactor':
                 continue
@@ -81,13 +81,14 @@ def generate_code(expr: e.Expr, target_indices: str, backend: str,
         target_indices = "".join(target_indices.split(','))
 
     ret = []
-    for perm_symmetry, expr in expr_with_perm_sym.items():
+    for pidx, eps in enumerate(expr_with_perm_sym.items()):
+        perm_sym, expr = eps
         # make symmetry more readable
-        perm_symmetry = _pretty_perm_symmetry(perm_symmetry)
+        perm_symmetry = _pretty_perm_symmetry(perm_sym)
 
         # generate contractions for each term
         contraction_code = []
-        for term in expr.terms:
+        for term_idx, term in enumerate(expr.terms):
             # 1) generate a string for the prefactor
             if (pref := term.prefactor) < 0:
                 pref_str = '- '
@@ -125,20 +126,34 @@ def generate_code(expr: e.Expr, target_indices: str, backend: str,
             # 3) construct a string for the contraction
             contraction_strings = {}  # cache for not final contractions
             last_idx = len(contractions) - 1
+            einsum_prefix = ""
+            einsum_suffix = " "
+            if backend == 'einsum' and itmd_start_idx > -1:
+                if term_idx == 0:
+                    einsum_prefix = f"itmd{itmd_start_idx+pidx} = "
+                    if len(expr.terms) > 1:
+                        einsum_prefix += "("
+                elif term_idx == len(expr.terms)-1 and len(expr.terms) > 1:
+                    einsum_suffix = ")"
             for i, c_data in enumerate(contractions):
                 c_str = backend_specifics['contraction'](c_data,
                                                          contraction_strings)
                 if i == last_idx:  # only the last contraction is relevant
                     contraction_code.append(
-                        f"{pref_str} * {c_str}  {scaling_comment}"
+                        f"{einsum_prefix}{pref_str} * {c_str}{einsum_suffix}  {scaling_comment}"
                     )
                 else:  # save the contraction -> need it in the final
                     contraction_strings[c_data.obj_idx] = (c_str, c_data)
         contraction_code = "\n".join(contraction_code)
         res_string = (
+            f"{backend_specifics['comment']} "
             "The scaling comment is given as: [comp_scaling] / "
-            f"[mem_scaling]\nApply {perm_symmetry} to:\n{contraction_code}"
+            f"[mem_scaling]\n{backend_specifics['comment']} "
+            f"Apply {perm_symmetry} to:\n{contraction_code}"
         )
+        if backend == 'einsum' and itmd_start_idx > -1:
+            einsum_perms = _gen_pretty_einsum_perms(perm_sym, itmd_start_idx+pidx, target_indices)
+            res_string += "\n\n" + einsum_perms
         ret.append(res_string)
     return "\n\n".join(ret)
 
@@ -348,3 +363,21 @@ def _pretty_perm_symmetry(perm_sym: tuple) -> str:
             perm_str += f"P_{{{''.join(s.name for s in perm)}}}"
         perm_sym_str += perm_str
     return perm_sym_str + ")"
+
+def _gen_pretty_einsum_perms(perm_sym: tuple, itmd_idx: int, target_indices: tuple) -> str:
+    if not perm_sym or not target_indices:
+        return ""
+
+    perm_sym_str = f"itmd{itmd_idx} = itmd{itmd_idx}"
+    idx_str = ''.join(t.name for t in target_indices)
+    for perms, factor in perm_sym:
+        prefactor_str = " + " if factor == 1 else " - "
+        all_indices = list(target_indices)
+        for perm in perms:
+            idx0 = all_indices.index(perm[0])
+            idx1 = all_indices.index(perm[1])
+            all_indices[idx0], all_indices[idx1] = all_indices[idx1], all_indices[idx0]
+        nidx_str = ''.join(s.name for s in all_indices)
+        perm_sym_str += f"{prefactor_str}einsum('{idx_str}->{nidx_str}', itmd{itmd_idx})"
+    return perm_sym_str
+

@@ -195,7 +195,6 @@ class NonSymmetricTensor(TensorSymbol):
     def __str__(self):
         return "%s%s" % self.args
 
-
 class KroneckerDelta(Function):
     """Represents a Kronecker delta. Based on the implementation in
        sympy.physics.secondquant."""

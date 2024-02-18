@@ -1854,7 +1854,7 @@ class Obj(Container):
         tensor = self.base
         if o_type in ['antisymtensor', 'symtensor']:  # t/ADC-amplitudes etc.
             kwargs = {'upper': tensor.upper, 'lower': tensor.lower}
-        elif o_type == 'nonsymtensor':  # orb energy + some special itmds
+        elif o_type in ['nonsymtensor', 'rottensor']:  # orb energy + some special itmds
             kwargs = {'lower': tensor.indices}
         return tensor_string(**kwargs)
 
