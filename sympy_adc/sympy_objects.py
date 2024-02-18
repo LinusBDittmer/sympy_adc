@@ -213,7 +213,7 @@ class RotationTensor(NonSymmetricTensor):
     non-canonical basis.
     """
 
-    def __new__(cls, symbol: str, indices: tuple[Dummy]) -> NonSymmetricTensor:
+    def __new__(cls, symbol: str, indices: tuple[Index]) -> NonSymmetricTensor:
         return super().__new__(cls, "U", indices)
 
 

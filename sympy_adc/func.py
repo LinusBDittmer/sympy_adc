@@ -1,7 +1,7 @@
 from .expr_container import Expr
 from .misc import Inputerror
 from .rules import Rules
-from .indices import Index, get_symbols, split_idx_string
+from .indices import Index, get_symbols, split_idx_string, Indices
 from .sympy_objects import (
     KroneckerDelta, NonSymmetricTensor, AntiSymmetricTensor, SymmetricTensor
 )
@@ -13,6 +13,132 @@ from sympy import S, Add, Mul, Pow, sqrt
 
 from itertools import product
 
+def eri_unitary_deriv1(eri_idx: [Index], deriv_idx: [Index], indices: Indices, notation: str = 'p'):
+    """Calculates the first derivative of an ERI with respect to a unitary
+    transformation at the current ERI.
+
+    :param eri_idx: The indices of the ERI
+    :type eri_idx: list
+    :param deriv_idx: The indices to which the derivative is made
+    :type deriv_idx: list
+    :param notation: Physicist/Chemist
+    :type notation: str
+    :return: The derivative
+    :rtype: Add
+    """
+    if len(eri_idx) != 4:
+        raise Inputerror("4 Indices are required for the ERI, received "
+                f"{len(eri_idx)}")
+    if len(deriv_idx) != 2:
+        raise Inputerror("2 Indices are required for the derivative, "
+                f"received {len(deriv_idx)}")
+    elif notation not in ['p', 'physicist', 'c', 'chemist']:
+        raise Inputerror("Only Physicist (p) and Chemist (c) notation are "
+                "valid")
+   
+    if len(notation) > 1:
+        notation = notation[0]
+
+    from .sympy_objects import KroneckerDelta as KD
+    def ud(mat0, mat1, deriv0, deriv1):
+        return KD(mat0, deriv0) * KD(mat1, deriv1) - KD(mat0, deriv1) * KD(mat1, deriv0)
+
+    aux_symbols = indices.get_generic_indices(n_o=2, n_v=2)
+    a0, a1 = aux_symbols['occ']
+    b0, b1 = aux_symbols['virt']
+    if notation == 'p':
+        v = NonSymmetricTensor('v', (a0, a1, b0, b1))
+        eri0, eri1, eri2, eri3 = eri_idx
+    else:
+        v = SymmetricTensor('v', (a0, b0), (a1, b1))
+        eri0, eri2, eri1, eri3 = eri_idx
+    k0, k1 = deriv_idx
+
+    expr =  ud(eri0, a0, k0, k1) * KD(eri1, a1) * KD(eri2, b0) * KD(eri3, b1)
+    expr += KD(eri0, a0) * ud(eri1, a1, k0, k1) * KD(eri2, b0) * KD(eri3, b1)
+    expr += KD(eri0, a0) * KD(eri1, a1) * ud(eri2, b0, k0, k1) * KD(eri3, b1)
+    expr += KD(eri0, a0) * KD(eri1, a1) * KD(eri2, b0) * ud(eri3, b1, k0, k1)
+    return -v * expr
+
+def eri_unitary_deriv2(eri_idx: [Index], deriv_idx: [Index], indices: Indices, notation: str = 'p'):
+    """Calculates the second derivative of an ERI with respect to a unitary
+    transformation at the current ERI.
+
+    :param eri_idx: The indices of the ERI
+    :type eri_idx: list
+    :param deriv_idx: The indices to which the derivative is made
+    :type deriv_idx: list
+    :param notation: Physicist/Chemist
+    :type notation: str
+    :return: The derivative
+    :rtype: Add
+    """
+    if len(eri_idx) != 4:
+        raise Inputerror("4 Indices are required for the ERI, received "
+                f"{len(eri_idx)}")
+    if len(deriv_idx) != 4:
+        raise Inputerror("4 Indices are required for the derivative, "
+                f"received {len(deriv_idx)}")
+    elif notation not in ['p', 'physicist', 'c', 'chemist']:
+        raise Inputerror("Only Physicist (p) and Chemist (c) notation are "
+                "valid")
+   
+    if len(notation) > 1:
+        notation = notation[0]
+
+    from .sympy_objects import KroneckerDelta as KD
+    def ud(mat0, mat1, deriv0, deriv1):
+        return KD(mat0, deriv0) * KD(mat1, deriv1) - KD(mat0, deriv1) * KD(mat1, deriv0)
+
+    def ud2(mat0, mat1, deriv0, deriv1, deriv2, deriv3):
+        if mat0.space == 'occ':
+            cont_idx = indices.get_generic_indices(n_o=1)['occ'][0]
+        elif mat0.space == 'virt':
+            cont_idx = indices.get_generic_indices(n_v=1)['virt'][0]
+        else:
+            raise NotImplementedError('General indices are not implemented.')
+        m1_a = ud(mat0, cont_idx, deriv0, deriv1)
+        m2_a = ud(cont_idx, mat1, deriv2, deriv3)
+        m1_b = ud(mat0, cont_idx, deriv2, deriv3)
+        m2_b = ud(cont_idx, mat1, deriv0, deriv1)
+        return 0.5 * (m1_a * m2_a + m1_b * m2_b)
+
+    aux_symbols = indices.get_generic_indices(n_o=2, n_v=2)
+    a0, a1 = aux_symbols['occ']
+    b0, b1 = aux_symbols['virt']
+    if notation == 'p':
+        v = NonSymmetricTensor('v', (a0, a1, b0, b1))
+        eri0, eri1, eri2, eri3 = eri_idx
+    else:
+        v = SymmetricTensor('v', (a0, b0), (a1, b1))
+        eri0, eri2, eri1, eri3 = eri_idx
+    k0, k1, k2, k3 = deriv_idx
+
+    # Building the prefactor to d U_pq / d k_ab
+    expr0 =  ud(eri1, a1, k2, k3) * KD(eri2, b0) * KD(eri3, b1)
+    expr0 += KD(eri1, a1) * ud(eri2, b0, k2, k3) * KD(eri3, b1)
+    expr0 += KD(eri1, a1) * KD(eri2, b0) * ud(eri3, b1, k2, k3)
+    # Building the prefactor to the second term
+    expr1 =  ud(eri0, a0, k2, k3) * KD(eri2, b0) * KD(eri3, b1)
+    expr1 += KD(eri0, a0) * ud(eri2, b0, k2, k3) * KD(eri3, b1)
+    expr1 += KD(eri0, a0) * KD(eri2, b0) * ud(eri3, b1, k2, k3)
+    # Building the prefactor to the third term
+    expr2 =  ud(eri0, a0, k2, k3) * KD(eri1, a1) * KD(eri3, b1)
+    expr2 += KD(eri0, a0) * ud(eri1, a1, k2, k3) * KD(eri3, b1)
+    expr2 += KD(eri0, a0) * KD(eri1, a1) * ud(eri3, b1, k2, k3)
+    # Building the prefactor to the fourth term
+    expr3 =  ud(eri0, a0, k2, k3) * KD(eri1, a1) * KD(eri2, b0)
+    expr3 += KD(eri0, a0) * ud(eri1, a1, k2, k3) * KD(eri2, b0)
+    expr3 += KD(eri0, a0) * KD(eri1, a1) * ud(eri2, b0, k2, k3)
+
+    # Building the complete prefactor
+    expr = (ud(eri0, a0, k0, k1) * expr0 + ud2(eri0, a0, k0, k1, k2, k3) * KD(eri1, a1) * KD(eri2, b0) * KD(eri3, b1)
+            + ud(eri1, a1, k0, k1) * expr1 + KD(eri0, a0) * ud2(eri1, a1, k0, k1, k2, k3) * KD(eri2, b0) * KD(eri3, b1)
+            + ud(eri2, b0, k0, k1) * expr2 + KD(eri0, a0) * KD(eri1, a1) * ud2(eri2, b0, k0, k1, k2, k3) * KD(eri3, b1)
+            + ud(eri3, b1, k0, k1) * expr3 + KD(eri0, a0) * KD(eri1, a1) * KD(eri2, b0) * ud2(eri3, b1, k0, k1, k2, k3))
+
+    # Returning the complete expression
+    return v * expr
 
 def gen_term_orders(order, term_length, min_order):
     """Generates all combinations that contribute to the n'th order
@@ -271,6 +397,14 @@ def evaluate_deltas(expr, target_idx=None):
             deltas = [d for d in expr.args if isinstance(d, KroneckerDelta)]
             target_idx = get_symbols(target_idx)
 
+        index_occurences = {}
+        for obj in expr.args:
+            for s in obj.atoms(Index):
+                if s in index_occurences:
+                    index_occurences[s] += 1
+                else:
+                    index_occurences[s] = 0
+
         for d in deltas:
             # determine the killable and preferred index
             # in the case we have delta_{i p_alpha} we want to keep i_alpha
@@ -281,7 +415,7 @@ def evaluate_deltas(expr, target_idx=None):
                 continue
             preferred, killable = idx
             # try to remove killable
-            if killable not in target_idx:
+            if killable not in target_idx and index_occurences[killable] > 0:
                 expr = expr.subs(killable, preferred)
                 if len(deltas) > 1:
                     return evaluate_deltas(expr, target_idx)

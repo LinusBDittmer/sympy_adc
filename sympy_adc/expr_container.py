@@ -1419,11 +1419,8 @@ class Obj(Container):
             F: 'annihilate',
             Fd: 'create',
             NonSymmetricTensor: 'nonsymtensor',
-<<<<<<< HEAD
-            RotationTensor: 'rottensor'
-=======
-            SymmetricTensor: 'symtensor',
->>>>>>> 2dadb496d45f3cc47fb87087cb9daee1e8936734
+            RotationTensor: 'rottensor',
+            SymmetricTensor: 'symtensor'
         }
         try:
             return types[type(self.extract_pow)]
@@ -1538,14 +1535,11 @@ class Obj(Container):
             'annihilate': lambda o: o.args,
             'create': lambda o: o.args,
             'nonsymtensor': lambda o: o.indices,
-<<<<<<< HEAD
-            'rottensor': lambda o: o.indices
-=======
+            'rottensor': lambda o: o.indices,
             'symtensor': lambda o: (
                 o.lower + o.upper if self.is_amplitude else o.upper + o.lower
-            ),
->>>>>>> 2dadb496d45f3cc47fb87087cb9daee1e8936734
-        }
+            )
+                        }
         try:
             return get_idx[self.type](self.extract_pow)
         except KeyError:
@@ -1851,7 +1845,7 @@ class Obj(Container):
         tensor = self.extract_pow
         if o_type in ['antisymtensor', 'symtensor']:  # t/ADC-amplitudes etc.
             kwargs = {'upper': tensor.upper, 'lower': tensor.lower}
-        elif o_type == 'nonsymtensor':  # orb energy + some special itmds
+        elif o_type in ['nonsymtensor', 'rottensor']:  # orb energy + some special itmds
             kwargs = {'lower': tensor.indices}
         return tensor_string(**kwargs)
 
