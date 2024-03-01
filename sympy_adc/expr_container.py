@@ -1,5 +1,5 @@
 from .indices import (get_lowest_avail_indices, get_symbols,
-                      order_substitutions, idx_sort_key, Index)
+                      order_substitutions, Index, sort_idx_canonical)
 from .misc import Inputerror, cached_property, cached_member
 from .sympy_objects import (
     NonSymmetricTensor, AntiSymmetricTensor, KroneckerDelta, SymmetricTensor, RotationTensor
@@ -203,7 +203,8 @@ class Expr(Container):
             self._target_idx = None
         else:
             target_idx = set(get_symbols(target_idx))
-            self._target_idx = tuple(sorted(target_idx, key=idx_sort_key))
+            self._target_idx = tuple(sorted(target_idx,
+                                            key=sort_idx_canonical))
 
     def make_real(self):
         """Makes the expression real by removing all 'c' in tensor names.
@@ -348,9 +349,7 @@ class Expr(Container):
         """Returns all indices that occur in the expression. Indices that occur
            multiple times will be listed multiple times."""
         idx = [s for t in self.terms for s in t.idx]
-        return tuple(sorted(
-            idx, key=lambda s: (int(s.name[1:]) if s.name[1:] else 0, s.name)
-        ))
+        return tuple(sorted(idx, key=sort_idx_canonical))
 
     def copy(self):
         return Expr(self.sympy, **self.assumptions)
@@ -838,7 +837,8 @@ class Term(Container):
                     idx[s] += n
                 else:  # start counting at 0
                     idx[s] = n - 1
-        return tuple(sorted(idx.items(), key=lambda tpl: idx_sort_key(tpl[0])))
+        return tuple(sorted(idx.items(),
+                            key=lambda tpl: sort_idx_canonical(tpl[0])))
 
     @cached_property
     def prefactor(self):
@@ -951,13 +951,14 @@ class Term(Container):
                'denom': Expr(1, **assumptions),
                'remainder': Expr(1, **assumptions)}
         for o in self.objects:
+            base, exponent = o.base_and_exponent
             if o.contains_only_orb_energies:
-                key = "denom" if o.exponent < 0 else "num"
+                key = "denom" if exponent < 0 else "num"
             elif o.type == 'prefactor':
                 key = "num"
             else:
                 key = 'remainder'
-            ret[key] *= Pow(o.extract_pow, abs(o.exponent))
+            ret[key] *= Pow(base, abs(exponent))
         return ret
 
     @property
@@ -991,12 +992,6 @@ class Term(Container):
         from .generate_code import scaling, contraction_data, mem_scaling
         from collections import Counter
         from itertools import combinations
-
-        def sort_canonical(idx):
-            # duplicate of antisym tensor sort function. Hash was omitted
-            return (idx.space[0],
-                    int(idx.name[1:]) if idx.name[1:] else 0,
-                    idx.name[0])
 
         def extract_data(o):
             if isinstance(o, Obj):
@@ -1049,8 +1044,8 @@ class Term(Container):
             scal = scaling(total, general, virt, occ, mem)
 
             # sort contracted and target indices canonical and store as tuple
-            contracted = tuple(sorted(contracted, key=sort_canonical))
-            target = tuple(sorted(target, key=sort_canonical))
+            contracted = tuple(sorted(contracted, key=sort_idx_canonical))
+            target = tuple(sorted(target, key=sort_idx_canonical))
 
             # is it the outermost contraction?
             # rather use the provided target indices -> correct order
@@ -1127,12 +1122,12 @@ class Term(Container):
 
         # use the canonical target indices of the term
         if target_indices is None:
-            target_indices = sorted(self.target, key=sort_canonical)
+            target_indices = self.target  # already sorted canonical
             canonical_target = tuple(target_indices)
         else:  # or transform the provided target indices to sympy symbols
             target_indices = tuple(get_symbols(target_indices))
             canonical_target = tuple(sorted(target_indices,
-                                            key=sort_canonical))
+                                            key=sort_idx_canonical))
 
         if len(relevant_objects) == 0:
             return []
@@ -1265,10 +1260,10 @@ class Obj(Container):
             if old == new:
                 real_obj = self.sympy
             else:
-                tensor = self.extract_pow
+                base, exponent = self.base_and_exponent
                 real_obj = Pow(
-                    AntiSymmetricTensor(new, tensor.upper, tensor.lower,
-                                        tensor.bra_ket_sym), self.exponent
+                    AntiSymmetricTensor(new, base.upper, base.lower,
+                                        base.bra_ket_sym), exponent
                 )
         else:
             real_obj = self.sympy
@@ -1280,19 +1275,19 @@ class Obj(Container):
 
     def _apply_tensor_braket_sym(self, return_sympy: bool = False):
         if self.type in ["antisymtensor", "symtensor"]:
-            tensor = self.extract_pow
+            base, exponent = self.base_and_exponent
             bra_ket_sym = None
             if (name := self.name) in self.sym_tensors and \
-                    tensor.bra_ket_sym is not S.One:
+                    base.bra_ket_sym is not S.One:
                 bra_ket_sym = 1
             elif name in self.antisym_tensors and \
-                    tensor.bra_ket_sym is not S.NegativeOne:
+                    base.bra_ket_sym is not S.NegativeOne:
                 bra_ket_sym = -1
             if bra_ket_sym is None:
                 obj_with_sym = self.sympy
             else:
-                obj_with_sym = Pow(tensor.add_bra_ket_sym(bra_ket_sym),
-                                   self.exponent)
+                obj_with_sym = Pow(base.add_bra_ket_sym(bra_ket_sym),
+                                   exponent)
         else:
             obj_with_sym = self.sympy
         if return_sympy:
@@ -1355,7 +1350,7 @@ class Obj(Container):
                       return_sympy: bool = False):
         """Renames a tensor object."""
         if 'tensor' in (o_type := self.type) and self.name == current:
-            base = self.extract_pow
+            base, exponent = self.base_and_exponent
             if o_type == "antisymtensor":
                 base = AntiSymmetricTensor(
                         new, base.upper, base.lower, base.bra_ket_sym
@@ -1366,7 +1361,7 @@ class Obj(Container):
                 base = SymmetricTensor(
                     new, base.upper, base.lower, base.bra_ket_sym
                 )
-            new_obj = Pow(base, self.exponent)
+            new_obj = Pow(base, exponent)
         else:
             new_obj = self.sympy
         if return_sympy:
@@ -1403,13 +1398,24 @@ class Obj(Container):
             return Expr(res, **assumptions)
 
     @property
-    def exponent(self):
-        return self.sympy.args[1] if isinstance(self.sympy, Pow) else 1
+    def base_and_exponent(self) -> tuple:
+        base = self.sympy
+        if isinstance(base, Pow):
+            return base.args
+        else:
+            return base, 1
 
     @property
-    def extract_pow(self):
-        return self.sympy.args[0] if isinstance(self.sympy, Pow) \
-            else self.sympy
+    def base(self):
+        base = self.sympy
+        if isinstance(base, Pow):
+            return base.args[0]
+        else:
+            return base
+
+    @property
+    def exponent(self):
+        return self.sympy.args[1] if isinstance(self.sympy, Pow) else 1
 
     @cached_property
     def type(self) -> str:
@@ -1423,7 +1429,7 @@ class Obj(Container):
             SymmetricTensor: 'symtensor'
         }
         try:
-            return types[type(self.extract_pow)]
+            return types[type(self.base)]
         except KeyError:
             if self.is_number:
                 return 'prefactor'
@@ -1434,7 +1440,7 @@ class Obj(Container):
     def name(self) -> str:
         """Extract the name of tensor objects."""
         if 'tensor' in self.type:
-            return self.extract_pow.symbol.name
+            return self.base.symbol.name
 
     @property
     def is_amplitude(self):
@@ -1465,12 +1471,13 @@ class Obj(Container):
         name = None
         if 'tensor' in (o_type := self.type):
             name = self.name
+            base = self.base
             # t-amplitudes
             if name[0] == 't' and name[1:].replace('c', '').isnumeric():
-                if len(self.extract_pow.upper) != len(self.extract_pow.lower):
+                if len(base.upper) != len(base.lower):
                     raise RuntimeError("Number of upper and lower indices not "
                                        f"equal for t-amplitude {self}.")
-                name = f"t{len(self.extract_pow.upper)}_{name[1:]}"
+                name = f"t{len(base.upper)}_{name[1:]}"
             elif name in ['X', 'Y']:  # adc amplitudes
                 # need to determine the excitation space as int
                 space = self.space
@@ -1482,7 +1489,7 @@ class Obj(Container):
                 lr = "l" if name == "X" else 'r'
                 name = f"u{lr}{n}"
             elif name[0] == 'p' and name[1:].isnumeric():  # mp densities
-                if len(self.extract_pow.upper) != len(self.extract_pow.lower):
+                if len(base.upper) != len(base.lower):
                     raise RuntimeError("Number of upper and lower indices not "
                                        f"equal for mp density {self}.")
                 name = f"p0_{name[1:]}_{self.space}"
@@ -1500,7 +1507,7 @@ class Obj(Container):
     def bra_ket_sym(self):
         # nonsym_tensors are assumed to not have any symmetry atm!.
         if self.type in ["antisymtensor", "symtensor"]:
-            return self.extract_pow.bra_ket_sym
+            return self.base.bra_ket_sym
 
     def symmetry(self, only_contracted: bool = False,
                  only_target: bool = False) -> dict[tuple, int]:
@@ -1541,7 +1548,7 @@ class Obj(Container):
             )
                         }
         try:
-            return get_idx[self.type](self.extract_pow)
+            return get_idx[self.type](self.base)
         except KeyError:
             if self.type == 'prefactor':
                 return tuple()
@@ -1573,7 +1580,7 @@ class Obj(Container):
                                        include_target_idx=include_target_idx)
         o_type = self.type
         if o_type in ["antisymtensor", "symtensor"]:
-            tensor = self.extract_pow
+            tensor = self.base
             for uplo, idx_tpl in \
                     {'u': tensor.upper, 'l': tensor.lower}.items():
                 for s in idx_tpl:
@@ -1660,9 +1667,9 @@ class Obj(Container):
             target = self.term.target
 
         if descr in ['antisymtensor', 'symtensor']:
+            base, exponent = self.base_and_exponent
             # - space separated in upper and lower part
-            tensor = self.extract_pow
-            upper, lower = tensor.upper, tensor.lower
+            upper, lower = base.upper, base.lower
             data_u = "".join(s.space[0] + s.spin for s in upper)
             data_l = "".join(s.space[0] + s.spin for s in lower)
             descr += f"-{self.name}-{data_u}-{data_l}"
@@ -1672,7 +1679,7 @@ class Obj(Container):
                 target_u = "".join(s.name for s in upper if s in target)
                 target_l = "".join(s.name for s in lower if s in target)
                 if target_l or target_u:  # we have at least 1 target idx
-                    if tensor.bra_ket_sym is S.Zero:  # no bra ket symmetry
+                    if base.bra_ket_sym is S.Zero:  # no bra ket symmetry
                         if not target_u:
                             target_u = 'none'
                         if not target_l:
@@ -1685,7 +1692,7 @@ class Obj(Container):
                         else:  # only in 1 space at least 1 target idx
                             descr += f"-{target_u + target_l}"
             if include_exponent:  # add exponent to description
-                descr += f"-{self.exponent}"
+                descr += f"-{exponent}"
         elif descr == 'nonsymtensor':
             data = "".join(s.space[0] + s.spin for s in self.idx)
             descr += f"-{self.name}-{data}"
@@ -1754,14 +1761,14 @@ class Obj(Container):
            by replacing all symbolic denominators by their explicit counter
            part, i.e., D^{ij}_{ab} -> (e_i + e_j - e_a - e_b)^{-1}."""
         if self.name == "D":
-            tensor = self.extract_pow
+            tensor, exponent = self.base_and_exponent
             # upper indices are added, lower indices subtracted
             explicit_denom = 0
             for s in tensor.upper:
                 explicit_denom += NonSymmetricTensor("e", (s,))
             for s in tensor.lower:
                 explicit_denom -= NonSymmetricTensor("e", (s,))
-            explicit_denom = Pow(explicit_denom, -self.exponent)
+            explicit_denom = Pow(explicit_denom, -exponent)
         else:
             explicit_denom = self.sympy
         if return_sympy:
@@ -1842,7 +1849,7 @@ class Obj(Container):
             return self.__str__()
 
         # Only For Tensors!
-        tensor = self.extract_pow
+        tensor = self.base
         if o_type in ['antisymtensor', 'symtensor']:  # t/ADC-amplitudes etc.
             kwargs = {'upper': tensor.upper, 'lower': tensor.lower}
         elif o_type in ['nonsymtensor', 'rottensor']:  # orb energy + some special itmds
@@ -1979,11 +1986,11 @@ class Polynom(Obj):
 
     def __len__(self) -> int:
         # has to at least contain 2 terms: a+b
-        return len(self.extract_pow.args)
+        return len(self.base.args)
 
     @property
     def args(self):
-        return self.extract_pow.args
+        return self.base.args
 
     @cached_property
     def terms(self) -> tuple[Term]:
@@ -1999,9 +2006,7 @@ class Polynom(Obj):
         """Returns all indices that occur in the polynom. Indices that occur
            multiple times will be listed multiple times."""
         idx = [s for t in self.terms for s in t.idx]
-        return tuple(sorted(
-            idx, key=lambda s: (int(s.name[1:]) if s.name[1:] else 0, s.name)
-        ))
+        return tuple(sorted(idx, key=sort_idx_canonical))
 
     def make_real(self, return_sympy: bool = False) -> Expr:
         real = Add(*[t.make_real(return_sympy=True) for t in self.terms])

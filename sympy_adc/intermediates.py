@@ -1,5 +1,5 @@
 from .indices import (
-    get_symbols, index_space, order_substitutions, idx_sort_key
+    get_symbols, index_space, order_substitutions, sort_idx_canonical
 )
 from .indices import Indices as idx_cls
 from .indices import Index
@@ -422,8 +422,7 @@ class t2_1(RegisteredIntermediate):
                         bk_exponent = 1
                         bk = bk.sympy
                     else:
-                        bk_exponent = bk.exponent
-                        bk = bk.extract_pow
+                        bk, bk_exponent = bk.base_and_exponent
                     # found matching bracket in denominator
                     if bk == sub_t2_denom:
                         # can possibly factor multiple times, depending
@@ -644,7 +643,7 @@ class t1_3(RegisteredIntermediate):
             itmd = itmd.substitute_contracted().sympy
             contracted = tuple(sorted(
                 [s for s in itmd.atoms(Index) if s not in target],
-                key=idx_sort_key
+                key=sort_idx_canonical
             ))
         else:
             contracted = (j, k, b, c)
@@ -724,7 +723,7 @@ class t2_3(RegisteredIntermediate):
             itmd = itmd.substitute_contracted().sympy
             contracted = contracted = tuple(sorted(
                 [s for s in itmd.atoms(Index) if s not in target],
-                key=idx_sort_key
+                key=sort_idx_canonical
             ))
         else:
             contracted = (k, l, c, d)
@@ -939,7 +938,7 @@ class p0_3_oo(RegisteredIntermediate):
             p0 = e.Expr(p0, target_idx=target).substitute_contracted().sympy
             contracted = tuple(sorted(
                 [s for s in p0.atoms(Index) if s not in target],
-                key=idx_sort_key
+                key=sort_idx_canonical
             ))
         else:
             contracted = (k, a, b)
@@ -992,7 +991,7 @@ class p0_3_ov(RegisteredIntermediate):
             p0 = e.Expr(p0, target_idx=target).substitute_contracted().sympy
             contracted = tuple(sorted(
                 [s for s in p0.atoms(Index) if s not in target],
-                key=idx_sort_key
+                key=sort_idx_canonical
             ))
         else:
             contracted = (j, k, b, c)
@@ -1029,7 +1028,7 @@ class p0_3_vv(RegisteredIntermediate):
             p0 = e.Expr(p0, target_idx=target).substitute_contracted().sympy
             contracted = tuple(sorted(
                 [s for s in p0.atoms(Index) if s not in target],
-                key=idx_sort_key
+                key=sort_idx_canonical
             ))
         else:
             contracted = (i, j, c)
@@ -1222,7 +1221,7 @@ class t2eri_A(RegisteredIntermediate):
             pia = e.Expr(pia, target_idx=target).substitute_contracted().sympy
             contracted = tuple(sorted(
                 [s for s in pia.atoms(Index) if s not in target],
-                key=idx_sort_key
+                key=sort_idx_canonical
             ))
         else:
             contracted = tuple()
@@ -1255,7 +1254,7 @@ class t2eri_B(RegisteredIntermediate):
             pib = e.Expr(pib, target_idx=target).substitute_contracted().sympy
             contracted = tuple(sorted(
                 [s for s in pib.atoms(Index) if s not in target],
-                key=idx_sort_key
+                key=sort_idx_canonical
             ))
         else:
             contracted = tuple()

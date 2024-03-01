@@ -823,8 +823,7 @@ def _compare_terms(term: EriOrbenergy, itmd_term: EriOrbenergy,
                 itmd_bk_exponent = 1
                 itmd_bk = itmd_bk.sympy
             else:  # polynom  -> Pow object
-                itmd_bk_exponent = itmd_bk.exponent
-                itmd_bk = itmd_bk.extract_pow
+                itmd_bk, itmd_bk_exponent = itmd_bk.base_and_exponent
 
             # apply the substitutions to the base of the bracket
             sub_itmd_bk = itmd_bk.subs(sub_list)
@@ -837,7 +836,7 @@ def _compare_terms(term: EriOrbenergy, itmd_term: EriOrbenergy,
                     continue
                 bk = brackets[denom_i]
                 # extract the base of the bracket
-                bk = bk.sympy if isinstance(bk, e.Expr) else bk.extract_pow
+                bk = bk.sympy if isinstance(bk, e.Expr) else bk.base
                 if sub_itmd_bk - bk is S.Zero:  # brackets are equal?
                     denom_matches.extend(denom_i for _ in
                                          range(itmd_bk_exponent))
@@ -1045,7 +1044,7 @@ class LongItmdVariants(dict):
         # loop completed -> no complete variant found
         return None
 
-    def _complete_base_variants(self, pool: dict) -> tuple:
+    def _complete_base_variants(self, pool: dict):
         """Iterator over the base variants for complete intermediates."""
 
         def sort_matches(pool: dict, matches_to_sort: list) -> list:
@@ -1216,7 +1215,7 @@ class LongItmdVariants(dict):
         # loop completed -> no mixed variant found
         return None
 
-    def _mixed_pref_base_variants(self, pool: dict) -> tuple:
+    def _mixed_pref_base_variants(self, pool: dict):
         """Iterator over the base variants for intermediates with
            mixed prefactors."""
         # find the positions with the lowest number of matches
