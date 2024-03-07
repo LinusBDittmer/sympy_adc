@@ -228,7 +228,7 @@ class KroneckerDelta(Function):
         if i != min(i, j, key=sort_idx_canonical):
             return cls(j, i)
 
-    def _latex(self, printer):
+    def _latex(self, printer, **kwargs):
         return (
             "\\delta_{" + " ".join(s._latex(printer) for s in self.args) + "}"
         )
