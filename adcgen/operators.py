@@ -19,8 +19,8 @@ class Operators:
             return self.mp_h0()
         elif self._variant == 're':
             return self.re_h0()
-        elif self._variant == 'ncmp':
-            return self.ncmp_h0()
+        elif self._variant == 'ordmp':
+            return self.ordmp_h0()
         else:
             raise NotImplementedError(
                 f"H0 not implemented for {self._variant}"
@@ -32,8 +32,8 @@ class Operators:
             return self.mp_h1()
         elif self._variant == 're':
             return self.re_h1()
-        elif self._variant == 'ncmp':
-            return self.ncmp_h1()
+        elif self._variant == 'ordmp':
+            return self.ordmp_h1()
         else:
             raise NotImplementedError(
                 f"H1 not implented for {self._variant}"
@@ -83,7 +83,7 @@ class Operators:
         return h1, None
 
     @staticmethod
-    def ncmp_h0():
+    def ordmp_h0():
         idx_cls = Indices()
         p, q = idx_cls.get_indices('pq')['general']
         f = AntiSymmetricTensor('f', (p,), (q,))
@@ -94,18 +94,18 @@ class Operators:
         return h0, rules
 
     @staticmethod
-    def ncmp_h1():
+    def ordmp_h1():
         idx_cls = Indices()
         p, q, r, s, t, u, v, w = idx_cls.get_indices('pqrstuvw')['general']
         occ = idx_cls.get_generic_indices(n_o=1)['occ'][0]
 
-        h = AntiSymmetricTensor('h', (p,), (q,))
-        hr = AntiSymmetricTensor('h', (r,), (s,))
+        h = AntiSymmetricTensor('f', (p,), (q,))
+        hr = AntiSymmetricTensor('f', (r,), (s,))
         v1 = AntiSymmetricTensor('V', (p, occ), (q, occ))
         v2 = AntiSymmetricTensor('V', (t, u), (v, w))
         
         u_pr = RotationTensor(None, (p, r))
-        u_sq = RotationTensor(None, (s, q))
+        u_qs = RotationTensor(None, (q, s))
         u_pt = RotationTensor(None, (p, t))
         u_qu = RotationTensor(None, (q, u))
         u_rv = RotationTensor(None, (r, v))
@@ -114,7 +114,7 @@ class Operators:
         pq = Fd(p) * F(q)
         pqsr = Fd(p) * Fd(q) * F(s) * F(r)
 
-        h1 = (u_pr * hr * u_sq - h - v1) * pq + Rational(1, 4) * u_pt*u_qu*u_rv*u_sw * v2 * pqsr
+        h1 = (u_pr * hr * u_qs - h - v1) * pq + Rational(1, 4) * u_pt*u_qu*u_rv*u_sw * v2 * pqsr
         
         rules = Rules(forbidden_tensor_blocks = {'U': ('ov', 'vo')})
         print("H1 = ", latex(h1))
