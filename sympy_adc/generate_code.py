@@ -13,7 +13,8 @@ contraction_data = namedtuple('contraction_data',
 
 def generate_code(expr: e.Expr, target_indices: str, backend: str,
                   bra_ket_sym: int = 0, max_tensor_dim: int = None,
-                  optimize_contractions: bool = True, itmd_start_idx: int = -1) -> str:
+                  optimize_contractions: bool = True, itmd_start_idx: int = -1,
+                  strict_target_idx: bool = True) -> str:
     """Transforms an expression to contractions using either einsum (python)
        or libtensor (C++) syntax. Additionally, the computational and the
        memory scaling of each term is given as comment after each contraction
@@ -76,7 +77,7 @@ def generate_code(expr: e.Expr, target_indices: str, backend: str,
     backend_specifics = backend_specifics[backend]
 
     # try to reduce the number of terms by exploiting permutational symmetry
-    expr_with_perm_sym = exploit_perm_sym(expr, target_indices, bra_ket_sym)
+    expr_with_perm_sym = exploit_perm_sym(expr, target_indices, bra_ket_sym, strict_target_idx)
     if ',' in target_indices:  # remove the separator in target indices
         target_indices = "".join(target_indices.split(','))
 
@@ -155,7 +156,9 @@ def generate_code(expr: e.Expr, target_indices: str, backend: str,
             einsum_perms = _gen_pretty_einsum_perms(perm_sym, itmd_start_idx+pidx, target_indices)
             res_string += "\n\n" + einsum_perms
         ret.append(res_string)
-    return "\n\n".join(ret)
+    if itmd_start_idx < 0:
+        return "\n\n".join(ret)
+    return "\n\n".join(ret), len(expr_with_perm_sym)
 
 
 def _einsum_contraction(c_data: contraction_data, c_strings: dict) -> str:

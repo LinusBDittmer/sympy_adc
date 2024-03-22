@@ -1,5 +1,5 @@
 from .indices import (get_symbols, order_substitutions, Index,
-                      get_lowest_avail_indices, minimize_tensor_indices)
+                      get_lowest_avail_indices, minimize_tensor_indices, Indices)
 from .misc import Inputerror
 from .sympy_objects import KroneckerDelta
 from . import expr_container as e
@@ -277,7 +277,7 @@ def simplify(expr: e.Expr) -> e.Expr:
 
 
 def simplify_unitary(expr: e.Expr, t_name: str,
-                     evaluate_deltas: bool = False) -> e.Expr:
+        evaluate_deltas: bool = False, block_diagonal: bool = False) -> e.Expr:
     """Simplifies an expression that contains unitary tensors by applying
        U_pq * U_pr * Remainder = delta_qr * Remainder,
        where the Remainder does not contain the index p."""
@@ -300,6 +300,13 @@ def simplify_unitary(expr: e.Expr, t_name: str,
         #   -> what kind of bra ket symmetry is possible?
         #   throw an error if it is set to +-1?
 
+        # If block_diagonal: Cancel off-diagonal tensors
+        if block_diagonal:
+            for uidx in unitary_tensors:
+                u = obj[uidx]
+                if set((u.idx[0].space[0], u.idx[1].space[0])) == set(('o', 'v')):
+                    return S.Zero
+
         # need at least 2 unitary tensors
         if len(unitary_tensors) < 2:
             return term
@@ -307,6 +314,7 @@ def simplify_unitary(expr: e.Expr, t_name: str,
         # find the target indices
         target = term.target
         idx_counter = Counter(term.idx)
+        indices = Indices()
 
         # iterate over all pairs and look for matching contracted indices
         # that do only occur on the two unitary tensors we want to simplify
@@ -315,12 +323,28 @@ def simplify_unitary(expr: e.Expr, t_name: str,
             idx2 = obj[i2].idx
             # U_pq U_pr = delta_qr
             if idx1[0] == idx2[0] and idx1[0] not in target and \
-                    idx_counter[idx1[0]] == 2:
+                    idx_counter[idx1[0]] == 2 and (block_diagonal or idx1[0].space[0] == 'g'):
                 delta = KroneckerDelta(idx1[1], idx2[1])
+                # U_ip U_iq = delta_pq delta_pj iff block_diagonal
+                if idx1[0].space[0] == 'o' and idx1[1].space[0] == 'g':
+                    dummy_occ = indices.get_generic_indices(n_o=1)['occ'][0]
+                    delta *= KroneckerDelta(idx1[1], dummy_occ)
+                # U_ap U_aq = delta_pq delta_pb iff block_diagonal
+                elif idx1[0].space[0] == 'v' and idx1[1].space[0] == 'g':
+                    dummy_occ = indices.get_generic_indices(n_v=1)['virt'][0]
+                    delta *= KroneckerDelta(idx1[1], dummy_occ)
             # U_qp U_rp = delta_qr
             elif idx1[1] == idx2[1] and idx1[1] not in target and \
-                    idx_counter[idx1[1]] == 2:
+                    idx_counter[idx1[1]] == 2 and (block_diagonal or idx1[1].space[0] == 'g'):
                 delta = KroneckerDelta(idx1[0], idx2[0])
+                # U_pi U_qi = delta_pq delta_pi iff block_diagonal
+                if idx1[1].space[0] == 'o' and idx1[0].space[0] == 'g':
+                    dummy_occ = indices.get_generic_indices(n_o=1)['occ'][0]
+                    delta *= KroneckerDelta(idx1[0], dummy_occ)
+                # U_pa U_qa = delta_pq delta_pa iff block_diagonal
+                elif idx1[1].space[0] == 'v' and idx1[0].space[0] == 'g':
+                    dummy_occ = indices.get_generic_indices(n_v=1)['virt'][0]
+                    delta *= KroneckerDelta(idx1[0], dummy_occ)
             else:  # no matching indices
                 continue
 

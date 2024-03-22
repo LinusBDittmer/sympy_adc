@@ -125,6 +125,8 @@ class GroundState:
         variant = self.h._variant
         if variant == 'mp':
             return self.mp_amplitude(order, space, indices)
+        elif variant == 'ordmp':
+            return self.mp_amplitude(order, space, indices)
         elif variant == 're':
             return self.re_amplitude(order, space, indices)
         else:

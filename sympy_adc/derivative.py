@@ -1,7 +1,9 @@
 from . import expr_container as e
 from .indices import minimize_tensor_indices, Index
+from .simplify import simplify
+from .intermediates import Intermediates
 from sympy import Rational, diff, S
-
+from sympy import Add, Mul, Pow
 
 def derivative(expr: e.Expr, t_string: str):
     """Computes the derivative of an expression with respect to a tensor.
@@ -99,3 +101,158 @@ def derivative(expr: e.Expr, t_string: str):
                 derivative[space] = e.Expr(0, **assumptions)
             derivative[space] += symmetrized_deriv_contrib
     return derivative
+
+def premade_deriv_dicts(t: str):
+    if t not in {'orbital rotation'}:
+        raise NotImplementedError('No premade derivative dict for {t} exist.')
+
+    deriv_dict1: dict = {}
+    deriv_dict2: dict = {}
+
+    if t == 'orbital rotation':
+        from .func import eri_unitary_deriv1, eri_unitary_deriv2
+        
+        def eri1_wrapper(idx, didx):
+            return eri_unitary_deriv1(idx, didx, notation='c')
+
+        def eri2_wrapper(idx, didx1, didx2):
+            return eri_unitary_deriv2(idx, didx1+didx2, notation='c')
+
+        deriv_dict1 = {
+                'v': eri1_wrapper
+                }
+        deriv_dict2 = {
+                'v': eri2_wrapper
+                }
+    return deriv_dict1, deriv_dict2
+
+def implicit_derivative(expr: e.Expr, order: int, deriv_idx: [Index], deriv_dict1: dict, 
+                        deriv_dict2: dict = None) -> e.Expr:
+    if order == 0:
+        return expr
+    if order == 1:
+        return e.Expr(_implicit_deriv1(expr.sympy, deriv_idx, deriv_dict1))
+    if order == 2:
+        return e.Expr(_implicit_deriv2(expr.sympy, deriv_idx[0], deriv_idx[1], deriv_dict1,
+                      deriv_dict2))
+    raise RuntimeError(f'Only first and second derivatives supported, not of order {order}')
+
+def _implicit_deriv1(expr, deriv_idx: [Index], deriv_dict: dict) -> e.Expr:
+    # Sum rule
+    if isinstance(expr, Add):
+        # f = a + b
+        # f' = a' + b'
+        d = Add(*[_implicit_deriv1(a, deriv_idx, deriv_dict) for a in expr.args])
+        #print("After Addition")
+        #print(expr)
+        #print(d)
+        #print()
+        return d
+    # Product rule
+    if isinstance(expr, Mul):
+        # f = a * b
+        # f' = a' * b + a * b'
+        new_terms = []
+        for i, a in enumerate(expr.args):
+            adiff = _implicit_deriv1(a, deriv_idx, deriv_dict)
+            pterms = [b for j, b in enumerate(expr.args) if j != i]
+            pterms.insert(i, adiff)
+            new_terms.append(Mul(*pterms))
+        d = Add(*new_terms)
+        #print("After Multiplication")
+        #print(expr)
+        #print(d)
+        #print()
+        return d
+
+    # Polynomials
+    if isinstance(expr, Pow):
+        # f = a^n
+        # f' = n * a^(n-1) * a'
+        new_expr = Pow(expr.base, expr.exp-1) * expr.exp
+        d = new_expr * _implicit_deriv1(expr.base, deriv_idx, deriv_dict)
+        #print("After Powering:")
+        #print(expr)
+        #print(d)
+        #print()
+        return d
+
+    # Direct derivative
+    if hasattr(expr, 'symbol'):
+        if str(expr.symbol) in deriv_dict:
+            #print("Direct derivative ")
+            idx = None
+            if hasattr(expr, 'indices'):
+                idx = expr.indices
+            elif hasattr(expr, 'idx'):
+                idx = expr.idx
+            elif hasattr(expr, 'upper') and hasattr(expr, 'lower'):
+                idx = expr.upper + expr.lower
+            d = deriv_dict[str(expr.symbol)](idx, deriv_idx)
+            #print(expr)
+            #print(d)
+            #print()
+            return d
+    return 0
+
+def _implicit_deriv2(expr, deriv_idx1: [Index], deriv_idx2: [Index], deriv_dict1: dict,
+                     deriv_dict2: dict) -> e.Expr:
+    
+    # Sum rule
+    if isinstance(expr, Add):
+        # f = a + b
+        # f'' = a'' + b''
+        return Add(*[_implicit_deriv2(a, deriv_idx1, deriv_idx2, deriv_dict1, deriv_dict2) 
+                     for a in expr.args])
+
+    # Product rule
+    if isinstance(expr, Mul):
+        # f = a * b
+        # f'' = a'' * b + a' * b' + a' * b' + a * b''
+        #     = a'' * b + 2 * a' * b' + a * b''
+        new_terms = []
+        for i, a in enumerate(expr.args):
+            for j, b in enumerate(expr.args):
+                pterms = [c for k, c in enumerate(expr.args) if k not in {i, j}]
+                if i == j:
+                    diffterm = _implicit_deriv2(a, deriv_idx1, deriv_idx2, deriv_dict1,
+                                                deriv_dict2)
+                    pterms.insert(i, diffterm)
+                else:
+                    adiff = _implicit_deriv1(a, deriv_idx1, deriv_dict1)
+                    bdiff = _implicit_deriv1(b, deriv_idx2, deriv_dict1)
+                    pterms.insert(i, adiff)
+                    pterms.insert(j, bdiff)
+                new_terms.append(Mul(*pterms))
+        return Add(*new_terms)
+
+    # Polynomials
+    if isinstance(expr, Pow):
+        # f = a^n
+        # f'' = n * (n-1) * a^(n-2) * (a')^2 + n * a^(n-1) * a''
+        # ONLY FOR n != 1 (and 0 technically but that is not a Pow object)
+        # For n = 1 the first term vanishes
+        new_term = expr.exp * Pow(expr.base, expr.exp-1)
+        new_term *= _implicit_deriv2(expr.base, deriv_idx1, deriv_idx2, deriv_dict1, deriv_dict2)
+        if expr.exp != 1:
+            nt2 = expr.exp * (expr.exp-1) * Pow(expr.base, expr.exp-2)
+            nt2 *= _implicit_deriv1(expr.base, deriv_idx1, deriv_dict1)
+            nt2 *= _implicit_deriv1(expr.base, deriv_idx2, deriv_dict1)
+            new_term += nt2
+        return new_term
+
+    # Direct derivative
+    if hasattr(expr, 'symbol'):
+        s = str(expr.symbol)
+        if s in deriv_dict2:
+            idx = None
+            if hasattr(expr, 'indices'):
+                idx = expr.indices
+            elif hasattr(expr, 'idx'):
+                idx = expr.idx
+            elif hasattr(expr, 'upper') and hasattr(expr, 'lower'):
+                idx = expr.upper + expr.lower
+            return deriv_dict2[s](idx, deriv_idx1, deriv_idx2)
+    return 0
+
+

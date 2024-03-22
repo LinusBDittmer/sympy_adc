@@ -6,7 +6,7 @@ from .indices import Index
 from .misc import Inputerror, Singleton, cached_property, cached_member
 from . import expr_container as e
 from .eri_orbenergy import EriOrbenergy
-from .sympy_objects import NonSymmetricTensor, AntiSymmetricTensor
+from .sympy_objects import NonSymmetricTensor, AntiSymmetricTensor, RotationTensor
 from .symmetry import LazyTermMap
 from .spatial_orbitals import allowed_spin_blocks
 
@@ -1285,6 +1285,423 @@ class t2sq(RegisteredIntermediate):
 
     def _build_tensor(self, indices) -> AntiSymmetricTensor:
         return AntiSymmetricTensor('t2sq', indices[:2], indices[2:], 1)
+
+class f_trans_oo(RegisteredIntermediate):
+    """U-transformed Fock matrix"""
+    _itmd_type: str = 'fock'
+    _order: int = 0
+    _default_idx: tuple[str] = ('i', 'j')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        i, j = get_symbols(self.default_idx)
+        # generate additional contracted indices (2o)
+        p, q = get_symbols('pq')
+        rot1 = RotationTensor('U', (i, p))
+        rot2 = RotationTensor('U', (j, q))
+        f = AntiSymmetricTensor('f', (p,), (q,))
+        return base_expr(rot1*f*rot2, (i, j), (p, q))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('ft', indices[:1], indices[1:], 1)
+
+class f_trans_ov(RegisteredIntermediate):
+    """U-transformed Fock matrix"""
+    _itmd_type: str = 'fock'
+    _order: int = 0
+    _default_idx: tuple[str] = ('i', 'a')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        i, a = get_symbols(self.default_idx)
+        # generate additional contracted indices (2o)
+        p, q = get_symbols('pq')
+        rot1 = RotationTensor('U', (i, p))
+        rot2 = RotationTensor('U', (a, q))
+        f = AntiSymmetricTensor('f', (p,), (q,))
+        return base_expr(rot1*f*rot2, (i, a), (p, q))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('ft', indices[:1], indices[1:], 1)
+
+class f_trans_vo(RegisteredIntermediate):
+    """U-transformed Fock matrix"""
+    _itmd_type: str = 'fock'
+    _order: int = 0
+    _default_idx: tuple[str] = ('a', 'i')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        a, i = get_symbols(self.default_idx)
+        # generate additional contracted indices (2o)
+        p, q = get_symbols('pq')
+        rot1 = RotationTensor('U', (a, p))
+        rot2 = RotationTensor('U', (i, q))
+        f = AntiSymmetricTensor('f', (p,), (q,))
+        return base_expr(rot1*f*rot2, (a, i), (p, q))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('ft', indices[:1], indices[1:], 1)
+
+class f_trans_vv(RegisteredIntermediate):
+    """U-transformed Fock matrix"""
+    _itmd_type: str = 'fock'
+    _order: int = 0
+    _default_idx: tuple[str] = ('a', 'b')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        a, b = get_symbols(self.default_idx)
+        # generate additional contracted indices (2o)
+        p, q = get_symbols('pq')
+        rot1 = RotationTensor('U', (a, p))
+        rot2 = RotationTensor('U', (b, q))
+        f = AntiSymmetricTensor('f', (p,), (q,))
+        return base_expr(rot1*f*rot2, (a, b), (p, q))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('ft', indices[:1], indices[1:], 1)
+
+class eri_trans_oooo(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('i', 'j', 'k', 'l')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        i, j, k, l = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (i, p))
+        r2 = RotationTensor('U', (j, q))
+        r3 = RotationTensor('U', (k, r))
+        r4 = RotationTensor('U', (l, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (i, j, k, l), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+
+class eri_trans_ooov(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('i', 'j', 'k', 'a')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        i, j, k, a = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (i, p))
+        r2 = RotationTensor('U', (j, q))
+        r3 = RotationTensor('U', (k, r))
+        r4 = RotationTensor('U', (a, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (i, j, k, a), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+
+'''
+class eri_trans_oovo(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('i', 'j', 'a', 'k')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        i, j, a, k = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (i, p))
+        r2 = RotationTensor('U', (j, q))
+        r3 = RotationTensor('U', (a, r))
+        r4 = RotationTensor('U', (k, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (i, j, a, k), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+
+class eri_trans_ovoo(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('i', 'a', 'j', 'k')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        i, a, j, k = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (i, p))
+        r2 = RotationTensor('U', (a, q))
+        r3 = RotationTensor('U', (j, r))
+        r4 = RotationTensor('U', (k, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (i, a, j, k), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+
+class eri_trans_vooo(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('a', 'i', 'j', 'k')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        a, i, j, k = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (a, p))
+        r2 = RotationTensor('U', (i, q))
+        r3 = RotationTensor('U', (j, r))
+        r4 = RotationTensor('U', (k, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (a, i, j, k), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+'''
+
+class eri_trans_oovv(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('i', 'j', 'a', 'b')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        i, j, a, b = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (i, p))
+        r2 = RotationTensor('U', (j, q))
+        r3 = RotationTensor('U', (a, r))
+        r4 = RotationTensor('U', (b, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (i, j, a, b), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+
+class eri_trans_ovov(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('i', 'a', 'j', 'b')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        i, a, j, b = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (i, p))
+        r2 = RotationTensor('U', (a, q))
+        r3 = RotationTensor('U', (j, r))
+        r4 = RotationTensor('U', (b, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (i, a, j, b), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+
+'''
+class eri_trans_voov(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('a', 'i', 'j', 'b')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        a, i, j, b = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (a, p))
+        r2 = RotationTensor('U', (i, q))
+        r3 = RotationTensor('U', (j, r))
+        r4 = RotationTensor('U', (b, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (a, i, j, b), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+
+class eri_trans_ovvo(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('i', 'a', 'b', 'j')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        i, a, b, j = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (i, p))
+        r2 = RotationTensor('U', (a, q))
+        r3 = RotationTensor('U', (b, r))
+        r4 = RotationTensor('U', (j, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (i, a, b, j), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+
+class eri_trans_vovo(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('a', 'i', 'b', 'j')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        a, i, b, j = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (a, p))
+        r2 = RotationTensor('U', (i, q))
+        r3 = RotationTensor('U', (b, r))
+        r4 = RotationTensor('U', (j, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (a, i, b, j), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+
+class eri_trans_vvoo(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('a', 'b', 'i', 'j')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        a, b, i, j = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (a, p))
+        r2 = RotationTensor('U', (b, q))
+        r3 = RotationTensor('U', (i, r))
+        r4 = RotationTensor('U', (j, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (a, b, i, j), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+
+class eri_trans_vvvo(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('a', 'b', 'c', 'i')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        a, b, c, i = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (a, p))
+        r2 = RotationTensor('U', (b, q))
+        r3 = RotationTensor('U', (c, r))
+        r4 = RotationTensor('U', (i, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (a, b, c, i), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+
+class eri_trans_vvov(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('a', 'b', 'i', 'c')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        a, b, i, c = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (a, p))
+        r2 = RotationTensor('U', (b, q))
+        r3 = RotationTensor('U', (i, r))
+        r4 = RotationTensor('U', (c, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (a, b, i, c), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+
+class eri_trans_vovv(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('a', 'i', 'b', 'c')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        a, i, b, c = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (a, p))
+        r2 = RotationTensor('U', (i, q))
+        r3 = RotationTensor('U', (b, r))
+        r4 = RotationTensor('U', (c, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (a, i, b, c), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+'''
+
+class eri_trans_ovvv(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('i', 'a', 'b', 'c')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        i, a, b, c = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (i, p))
+        r2 = RotationTensor('U', (a, q))
+        r3 = RotationTensor('U', (b, r))
+        r4 = RotationTensor('U', (c, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (i, a, b, c), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+
+class eri_trans_vvvv(RegisteredIntermediate):
+    """U-transformed ERI"""
+    _itmd_type: str = 'eri'
+    _order: int = 1
+    _default_idx: tuple[str] = ('a', 'b', 'c', 'd')
+
+    @cached_member
+    def _build_expanded_itmd(self, fully_expand: bool = True):
+        a, b, c, d = get_symbols(self.default_idx)
+        p, q, r, s = get_symbols('pqrs')
+        v = AntiSymmetricTensor('V', (p, q), (r, s))
+        r1 = RotationTensor('U', (a, p))
+        r2 = RotationTensor('U', (b, q))
+        r3 = RotationTensor('U', (c, r))
+        r4 = RotationTensor('U', (d, s))
+        exp_itmd = v * r1 * r2 * r3 * r4
+        return base_expr(exp_itmd, (a, b, c, d), (p, q, r, s))
+
+    def _build_tensor(self, indices) -> AntiSymmetricTensor:
+        return AntiSymmetricTensor('Vt', indices[:2], indices[2:], 1)
+
 
 
 def eri(idx: str | list[Index] | list[str]) -> AntiSymmetricTensor:

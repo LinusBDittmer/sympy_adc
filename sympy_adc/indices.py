@@ -93,6 +93,19 @@ class Indices(metaclass=Singleton):
         self._generic_indices[key].extend(new_idx)
         setattr(self, f'counter_{key}', counter + 1)
 
+    def get_generic_copies(self, indices: [Index]) -> list:
+        gen_indices = []
+        for idx in indices:
+            kw_string = f'{idx.space}_{idx.spin}'
+            if kw_string[-1] == 'n':
+                kw_string = kw_string[:-1]
+            if kw_string[-1] == '_':
+                kw_string = kw_string[:-1]
+            idx_kwargs = {f'n_{kw_string}': 1}
+            aux_idx = self.get_generic_indices(**idx_kwargs)
+            gen_indices.extend(aux_idx[kw_string])
+        return gen_indices
+
     def get_indices(self, indices: str, spins: str = None) -> dict:
         """Obtain the symbols for the provided index string."""
         if not isinstance(indices, str):

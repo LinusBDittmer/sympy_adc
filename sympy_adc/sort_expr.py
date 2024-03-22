@@ -157,7 +157,7 @@ def by_tensor_target_idx(expr: e.Expr, t_string: str) -> dict[tuple[str], e.Expr
 
 
 def exploit_perm_sym(expr: e.Expr, target_indices: str = None,
-                     bra_ket_sym: int = 0) -> dict[tuple, e.Expr]:
+                     bra_ket_sym: int = 0, strict_target_idx: bool = True) -> dict[tuple, e.Expr]:
     """Reduces the number of terms in an expression by exploiting its
        symmetry, i.e., splits the expression in sub expressions that
        are assigned to specific permutations. Applying those permutations
@@ -198,7 +198,7 @@ def exploit_perm_sym(expr: e.Expr, target_indices: str = None,
     # check that each term in the expr contains the same target indices
     ref_target = terms[0].target
     if not expr.provided_target_idx and \
-            any(term.target != ref_target for term in terms):
+            any(term.target != ref_target for term in terms) and strict_target_idx:
         raise Inputerror("Each term in the expression needs to contain the "
                          "same target indices.")
 
@@ -218,7 +218,7 @@ def exploit_perm_sym(expr: e.Expr, target_indices: str = None,
         upper, lower = get_symbols(upper), get_symbols(lower)
         sorted_provided_target = tuple(sorted(upper + lower,
                                               key=sort_idx_canonical))
-        if sorted_provided_target != ref_target:
+        if sorted_provided_target != ref_target and strict_target_idx:
             raise Inputerror(f"The provided target indices {target_indices} "
                              "are not equal to the target indices found in "
                              f"the expr: {ref_target}.")

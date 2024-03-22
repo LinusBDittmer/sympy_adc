@@ -1387,6 +1387,7 @@ class Obj(Container):
                 res += SymmetricTensor("v", (p, r), (q, s), 1)
             if p.spin == s.spin and q.spin == r.spin:
                 res -= SymmetricTensor("v", (p, s), (q, r), 1)
+            res = Pow(res, self.exponent)
         else:  # nothing to do
             res = self.sympy
 
@@ -1425,7 +1426,7 @@ class Obj(Container):
             F: 'annihilate',
             Fd: 'create',
             NonSymmetricTensor: 'nonsymtensor',
-            RotationTensor: 'rottensor',
+            RotationTensor: 'nonsymtensor',
             SymmetricTensor: 'symtensor'
         }
         try:
@@ -1542,7 +1543,6 @@ class Obj(Container):
             'annihilate': lambda o: o.args,
             'create': lambda o: o.args,
             'nonsymtensor': lambda o: o.indices,
-            'rottensor': lambda o: o.indices,
             'symtensor': lambda o: (
                 o.lower + o.upper if self.is_amplitude else o.upper + o.lower
             )
@@ -1723,6 +1723,11 @@ class Obj(Container):
             name = self.name
             if name == "V":  # hardcode the ERI spin blocks
                 return ("aaaa", "abab", "abba", "baab", "baba", "bbbb")
+            elif name == "D": # Delta = 1 / orbenergy diff
+                # All blocks are allowed
+                return ("aaaa", "aaab", "aaba", "abaa", "baaa", "aabb",
+                        "abab", "baab", "abba", "baba", "bbaa", "abbb",
+                        "babb", "bbab", "bbba", "bbbb")
             # t-amplitudes: all spin conserving spin blocks are allowed, i.e.,
             # all blocks with the same amount of alpha and beta indices
             # in upper and lower
@@ -1738,6 +1743,8 @@ class Obj(Container):
                 )
             elif name == "v":  # ERI in chemist notation
                 return ("aaaa", "aabb", "bbaa", "bbbb")
+            elif name == "U":  # Rotation tensor
+                return ("aa", "bb")
         elif t == "delta":
             # spins have to be equal
             return ("aa", "bb")
@@ -1852,7 +1859,7 @@ class Obj(Container):
         tensor = self.base
         if o_type in ['antisymtensor', 'symtensor']:  # t/ADC-amplitudes etc.
             kwargs = {'upper': tensor.upper, 'lower': tensor.lower}
-        elif o_type in ['nonsymtensor', 'rottensor']:  # orb energy + some special itmds
+        elif o_type in ['nonsymtensor']:  # orb energy + some special itmds
             kwargs = {'lower': tensor.indices}
         return tensor_string(**kwargs)
 
