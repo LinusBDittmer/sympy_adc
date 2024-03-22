@@ -1,4 +1,4 @@
-from .expr_container import Expr
+from .expr_container import Expr, Term
 from .misc import Inputerror
 from .rules import Rules
 from .indices import Index, get_symbols, split_idx_string, Indices
@@ -13,7 +13,7 @@ from sympy import S, Add, Mul, Pow, sqrt
 
 from itertools import product
 
-def eri_unitary_deriv1(eri_idx: [Index], deriv_idx: [Index], indices: Indices, notation: str = 'p'):
+def eri_unitary_deriv1(eri_idx: [Index], deriv_idx: [Index], notation: str = 'c'):
     """Calculates the first derivative of an ERI with respect to a unitary
     transformation at the current ERI.
 
@@ -38,29 +38,37 @@ def eri_unitary_deriv1(eri_idx: [Index], deriv_idx: [Index], indices: Indices, n
    
     if len(notation) > 1:
         notation = notation[0]
+    
+    indices = Indices()
 
     from .sympy_objects import KroneckerDelta as KD
     def ud(mat0, mat1, deriv0, deriv1):
-        return KD(mat0, deriv0) * KD(mat1, deriv1) - KD(mat0, deriv1) * KD(mat1, deriv0)
+        return -(KD(mat0, deriv0) * KD(mat1, deriv1) - KD(mat0, deriv1) * KD(mat1, deriv0))
 
-    aux_symbols = indices.get_generic_indices(n_o=2, n_v=2)
-    a0, a1 = aux_symbols['occ']
-    b0, b1 = aux_symbols['virt']
-    if notation == 'p':
-        v = NonSymmetricTensor('v', (a0, a1, b0, b1))
-        eri0, eri1, eri2, eri3 = eri_idx
-    else:
-        v = SymmetricTensor('v', (a0, b0), (a1, b1))
-        eri0, eri2, eri1, eri3 = eri_idx
+    aux_symbols = indices.get_generic_copies(eri_idx)
+    
     k0, k1 = deriv_idx
+    eri0, eri1, eri2, eri3 = eri_idx
 
-    expr =  ud(eri0, a0, k0, k1) * KD(eri1, a1) * KD(eri2, b0) * KD(eri3, b1)
-    expr += KD(eri0, a0) * ud(eri1, a1, k0, k1) * KD(eri2, b0) * KD(eri3, b1)
-    expr += KD(eri0, a0) * KD(eri1, a1) * ud(eri2, b0, k0, k1) * KD(eri3, b1)
-    expr += KD(eri0, a0) * KD(eri1, a1) * KD(eri2, b0) * ud(eri3, b1, k0, k1)
+    if notation == 'p':
+        a0, a1, b0, b1 = aux_symbols
+        v = NonSymmetricTensor('g', (a0, a1, b0, b1))
+        expr =  ud(eri0, a0, k0, k1) * KD(eri1, a1) * KD(eri2, b0) * KD(eri3, b1)
+        expr += KD(eri0, a0) * ud(eri1, a1, k0, k1) * KD(eri2, b0) * KD(eri3, b1)
+        expr += KD(eri0, a0) * KD(eri1, a1) * ud(eri2, b0, k0, k1) * KD(eri3, b1)
+        expr += KD(eri0, a0) * KD(eri1, a1) * KD(eri2, b0) * ud(eri3, b1, k0, k1)
+        return -v * expr
+
+    a0, b0, a1, b1 = aux_symbols
+    v = SymmetricTensor('v', (a0, b0), (a1, b1))
+
+    expr =  ud(eri0, a0, k0, k1) * KD(eri1, b0) * KD(eri2, a1) * KD(eri3, b1)
+    expr += KD(eri0, a0) * ud(eri1, b0, k0, k1) * KD(eri2, a1) * KD(eri3, b1)
+    expr += KD(eri0, a0) * KD(eri1, b0) * ud(eri2, a1, k0, k1) * KD(eri3, b1)
+    expr += KD(eri0, a0) * KD(eri1, b0) * KD(eri2, a1) * ud(eri3, b1, k0, k1)
     return -v * expr
 
-def eri_unitary_deriv2(eri_idx: [Index], deriv_idx: [Index], indices: Indices, notation: str = 'p'):
+def eri_unitary_deriv2(eri_idx: [Index], deriv_idx: [Index], notation: str = 'c'):
     """Calculates the second derivative of an ERI with respect to a unitary
     transformation at the current ERI.
 
@@ -86,59 +94,136 @@ def eri_unitary_deriv2(eri_idx: [Index], deriv_idx: [Index], indices: Indices, n
     if len(notation) > 1:
         notation = notation[0]
 
+    indices = Indices()
+
     from .sympy_objects import KroneckerDelta as KD
     def ud(mat0, mat1, deriv0, deriv1):
-        return KD(mat0, deriv0) * KD(mat1, deriv1) - KD(mat0, deriv1) * KD(mat1, deriv0)
+        return -(KD(mat0, deriv0) * KD(mat1, deriv1) - KD(mat0, deriv1) * KD(mat1, deriv0))
 
     def ud2(mat0, mat1, deriv0, deriv1, deriv2, deriv3):
-        if mat0.space == 'occ':
-            cont_idx = indices.get_generic_indices(n_o=1)['occ'][0]
-        elif mat0.space == 'virt':
-            cont_idx = indices.get_generic_indices(n_v=1)['virt'][0]
-        else:
-            raise NotImplementedError('General indices are not implemented.')
+        cont_idx = indices.get_generic_copies((mat0,))[0]
         m1_a = ud(mat0, cont_idx, deriv0, deriv1)
         m2_a = ud(cont_idx, mat1, deriv2, deriv3)
         m1_b = ud(mat0, cont_idx, deriv2, deriv3)
         m2_b = ud(cont_idx, mat1, deriv0, deriv1)
         return 0.5 * (m1_a * m2_a + m1_b * m2_b)
 
-    aux_symbols = indices.get_generic_indices(n_o=2, n_v=2)
-    a0, a1 = aux_symbols['occ']
-    b0, b1 = aux_symbols['virt']
-    if notation == 'p':
-        v = NonSymmetricTensor('v', (a0, a1, b0, b1))
-        eri0, eri1, eri2, eri3 = eri_idx
-    else:
-        v = SymmetricTensor('v', (a0, b0), (a1, b1))
-        eri0, eri2, eri1, eri3 = eri_idx
+    aux_symbols = indices.get_generic_copies(eri_idx)
     k0, k1, k2, k3 = deriv_idx
+    eri0, eri1, eri2, eri3 = eri_idx
+
+    if notation == 'p':
+        a0, a1, b0, b1 = aux_symbols
+        v = NonSymmetricTensor('g', (a0, a1, b0, b1))
+        # Building the prefactor to d U_pq / d k_ab
+        expr0 =  ud(eri1, a1, k2, k3) * KD(eri2, b0) * KD(eri3, b1)
+        expr0 += KD(eri1, a1) * ud(eri2, b0, k2, k3) * KD(eri3, b1)
+        expr0 += KD(eri1, a1) * KD(eri2, b0) * ud(eri3, b1, k2, k3)
+        # Building the prefactor to the second term
+        expr1 =  ud(eri0, a0, k2, k3) * KD(eri2, b0) * KD(eri3, b1)
+        expr1 += KD(eri0, a0) * ud(eri2, b0, k2, k3) * KD(eri3, b1)
+        expr1 += KD(eri0, a0) * KD(eri2, b0) * ud(eri3, b1, k2, k3)
+        # Building the prefactor to the third term
+        expr2 =  ud(eri0, a0, k2, k3) * KD(eri1, a1) * KD(eri3, b1)
+        expr2 += KD(eri0, a0) * ud(eri1, a1, k2, k3) * KD(eri3, b1)
+        expr2 += KD(eri0, a0) * KD(eri1, a1) * ud(eri3, b1, k2, k3)
+        # Building the prefactor to the fourth term
+        expr3 =  ud(eri0, a0, k2, k3) * KD(eri1, a1) * KD(eri2, b0)
+        expr3 += KD(eri0, a0) * ud(eri1, a1, k2, k3) * KD(eri2, b0)
+        expr3 += KD(eri0, a0) * KD(eri1, a1) * ud(eri2, b0, k2, k3)
+
+        # Building the complete prefactor
+        expr = (ud(eri0, a0, k0, k1) * expr0 + ud2(eri0, a0, k0, k1, k2, k3) * KD(eri1, a1) * KD(eri2, b0) * KD(eri3, b1)
+                + ud(eri1, a1, k0, k1) * expr1 + KD(eri0, a0) * ud2(eri1, a1, k0, k1, k2, k3) * KD(eri2, b0) * KD(eri3, b1)
+                + ud(eri2, b0, k0, k1) * expr2 + KD(eri0, a0) * KD(eri1, a1) * ud2(eri2, b0, k0, k1, k2, k3) * KD(eri3, b1)
+                + ud(eri3, b1, k0, k1) * expr3 + KD(eri0, a0) * KD(eri1, a1) * KD(eri2, b0) * ud2(eri3, b1, k0, k1, k2, k3))
+
+        # Returning the complete expression
+        return v * expr
+    
+    a0, b0, a1, b1 = aux_symbols
+    
+    print(f"ERI symbols: {eri0}, {eri1}, {eri2}, {eri3}")
+    print(f"Aux symbols: {a0}, {b0}, {a1}, {b1}")
+
+    v = SymmetricTensor('v', (a0, b0), (a1, b1))
 
     # Building the prefactor to d U_pq / d k_ab
-    expr0 =  ud(eri1, a1, k2, k3) * KD(eri2, b0) * KD(eri3, b1)
-    expr0 += KD(eri1, a1) * ud(eri2, b0, k2, k3) * KD(eri3, b1)
-    expr0 += KD(eri1, a1) * KD(eri2, b0) * ud(eri3, b1, k2, k3)
+    expr0 =  ud(eri1, b0, k2, k3) * KD(eri2, a1) * KD(eri3, b1)
+    expr0 += KD(eri1, b0) * ud(eri2, a1, k2, k3) * KD(eri3, b1)
+    expr0 += KD(eri1, b0) * KD(eri2, a1) * ud(eri3, b1, k2, k3)
     # Building the prefactor to the second term
-    expr1 =  ud(eri0, a0, k2, k3) * KD(eri2, b0) * KD(eri3, b1)
-    expr1 += KD(eri0, a0) * ud(eri2, b0, k2, k3) * KD(eri3, b1)
-    expr1 += KD(eri0, a0) * KD(eri2, b0) * ud(eri3, b1, k2, k3)
+    expr1 =  ud(eri0, a0, k2, k3) * KD(eri2, a1) * KD(eri3, b1)
+    expr1 += KD(eri0, a0) * ud(eri2, a1, k2, k3) * KD(eri3, b1)
+    expr1 += KD(eri0, a0) * KD(eri2, a1) * ud(eri3, b1, k2, k3)
     # Building the prefactor to the third term
-    expr2 =  ud(eri0, a0, k2, k3) * KD(eri1, a1) * KD(eri3, b1)
-    expr2 += KD(eri0, a0) * ud(eri1, a1, k2, k3) * KD(eri3, b1)
-    expr2 += KD(eri0, a0) * KD(eri1, a1) * ud(eri3, b1, k2, k3)
+    expr2 =  ud(eri0, a0, k2, k3) * KD(eri1, b0) * KD(eri3, b1)
+    expr2 += KD(eri0, a0) * ud(eri1, b0, k2, k3) * KD(eri3, b1)
+    expr2 += KD(eri0, a0) * KD(eri1, b0) * ud(eri3, b1, k2, k3)
     # Building the prefactor to the fourth term
-    expr3 =  ud(eri0, a0, k2, k3) * KD(eri1, a1) * KD(eri2, b0)
-    expr3 += KD(eri0, a0) * ud(eri1, a1, k2, k3) * KD(eri2, b0)
-    expr3 += KD(eri0, a0) * KD(eri1, a1) * ud(eri2, b0, k2, k3)
+    expr3 =  ud(eri0, a0, k2, k3) * KD(eri1, b0) * KD(eri2, a1)
+    expr3 += KD(eri0, a0) * ud(eri1, b0, k2, k3) * KD(eri2, a1)
+    expr3 += KD(eri0, a0) * KD(eri1, b0) * ud(eri2, a1, k2, k3)
 
     # Building the complete prefactor
-    expr = (ud(eri0, a0, k0, k1) * expr0 + ud2(eri0, a0, k0, k1, k2, k3) * KD(eri1, a1) * KD(eri2, b0) * KD(eri3, b1)
-            + ud(eri1, a1, k0, k1) * expr1 + KD(eri0, a0) * ud2(eri1, a1, k0, k1, k2, k3) * KD(eri2, b0) * KD(eri3, b1)
-            + ud(eri2, b0, k0, k1) * expr2 + KD(eri0, a0) * KD(eri1, a1) * ud2(eri2, b0, k0, k1, k2, k3) * KD(eri3, b1)
-            + ud(eri3, b1, k0, k1) * expr3 + KD(eri0, a0) * KD(eri1, a1) * KD(eri2, b0) * ud2(eri3, b1, k0, k1, k2, k3))
+    expr = (ud(eri0, a0, k0, k1) * expr0 + ud2(eri0, a0, k0, k1, k2, k3) * KD(eri1, b0) * KD(eri2, a1) * KD(eri3, b1)
+            + ud(eri1, b0, k0, k1) * expr1 + KD(eri0, a0) * ud2(eri1, b0, k0, k1, k2, k3) * KD(eri2, a1) * KD(eri3, b1)
+            + ud(eri2, a1, k0, k1) * expr2 + KD(eri0, a0) * KD(eri1, b0) * ud2(eri2, a1, k0, k1, k2, k3) * KD(eri3, b1)
+            + ud(eri3, b1, k0, k1) * expr3 + KD(eri0, a0) * KD(eri1, b0) * KD(eri2, a1) * ud2(eri3, b1, k0, k1, k2, k3))
 
     # Returning the complete expression
     return v * expr
+
+def is_term_connected(term: Term) -> bool:
+    if len(term.objects) == 1:
+        return True
+    index_list = [obj.idx for obj in term.objects if len(obj.idx) > 0]
+    # Create a dictionary to represent the graph
+    graph = {}
+    
+    # Build the graph based on shared strings
+    for sublist in index_list:
+        for i, index in enumerate(sublist):
+            if index not in graph:
+                graph[index] = set()
+            graph[index].update(sublist[:i])
+            graph[index].update(sublist[i+1:])
+
+    # Perform depth-first search (DFS) to check connectivity
+    visited = set()
+    stack = [next(iter(graph.keys()))]  # Start from an arbitrary string
+    while stack:
+        node = stack.pop()
+        if node not in visited:
+            visited.add(node)
+            stack.extend(graph.get(node, set()) - visited)
+    
+    # If all strings are visited, the graph is connected
+    return 2*len(visited) == sum(len(sublist) for sublist in index_list)
+
+def remove_disconnected_terms(expr: Expr):
+    e_new = 0
+    for term in expr.terms:
+        if is_term_connected(term):
+            e_new += term
+    return Expr(e_new)
+
+def is_term_mean_field(term: Term) -> bool:
+    for obj in term.objects:
+        if isinstance(obj.sympy, AntiSymmetricTensor):
+            if str(obj.sympy.symbol) == 'V':
+                red_idx = set(obj.upper)
+                red_idx.update(obj.lower)
+                if len(red_idx) < 4:
+                    return True
+    return False
+
+def remove_mean_field_terms(expr: Expr):
+    e_new = 0
+    for term in expr.terms:
+        if not is_term_mean_field(term):
+            e_new += term
+    return Expr(e_new)
 
 def gen_term_orders(order, term_length, min_order):
     """Generates all combinations that contribute to the n'th order
@@ -404,7 +489,6 @@ def evaluate_deltas(expr, target_idx=None):
                     index_occurences[s] += 1
                 else:
                     index_occurences[s] = 0
-
         for d in deltas:
             # determine the killable and preferred index
             # in the case we have delta_{i p_alpha} we want to keep i_alpha
@@ -415,7 +499,7 @@ def evaluate_deltas(expr, target_idx=None):
                 continue
             preferred, killable = idx
             # try to remove killable
-            if killable not in target_idx and index_occurences[killable] > 0:
+            if killable not in target_idx:
                 expr = expr.subs(killable, preferred)
                 if len(deltas) > 1:
                     return evaluate_deltas(expr, target_idx)
@@ -425,6 +509,7 @@ def evaluate_deltas(expr, target_idx=None):
             # -> killable has to be of length 1
             elif preferred not in target_idx \
                     and d.indices_contain_equal_information:
+                print(preferred, killable)
                 expr = expr.subs(preferred, killable)
                 if len(deltas) > 1:
                     return evaluate_deltas(expr, target_idx)

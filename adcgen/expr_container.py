@@ -1725,6 +1725,11 @@ class Obj(Container):
             name = self.name
             if name == "V":  # hardcode the ERI spin blocks
                 return ("aaaa", "abab", "abba", "baab", "baba", "bbbb")
+            elif name == "D": # Delta = 1 / orbenergy diff
+                # All blocks are allowed
+                return ("aaaa", "aaab", "aaba", "abaa", "baaa", "aabb",
+                        "abab", "baab", "abba", "baba", "bbaa", "abbb",
+                        "babb", "bbab", "bbba", "bbbb")
             # t-amplitudes: all spin conserving spin blocks are allowed, i.e.,
             # all blocks with the same amount of alpha and beta indices
             # in upper and lower
@@ -1740,6 +1745,8 @@ class Obj(Container):
                 )
             elif name == "v":  # ERI in chemist notation
                 return ("aaaa", "aabb", "bbaa", "bbbb")
+            elif name == "U":  # Rotation tensor
+                return ("aa", "bb")
         elif t == "delta":
             # spins have to be equal
             return ("aa", "bb")
@@ -1854,7 +1861,7 @@ class Obj(Container):
         tensor = self.base
         if o_type in ['antisymtensor', 'symtensor']:  # t/ADC-amplitudes etc.
             kwargs = {'upper': tensor.upper, 'lower': tensor.lower}
-        elif o_type in ['nonsymtensor', 'rottensor']:  # orb energy + some special itmds
+        elif o_type in ['nonsymtensor']:  # orb energy + some special itmds
             kwargs = {'lower': tensor.indices}
         return tensor_string(**kwargs)
 

@@ -85,10 +85,12 @@ class Operators:
     @staticmethod
     def ordmp_h0():
         idx_cls = Indices()
-        p, q = idx_cls.get_indices('pq')['general']
-        f = AntiSymmetricTensor('f', (p,), (q,))
+        p, q, r, s = idx_cls.get_indices('pqrs')['general']
+        u_pr = RotationTensor('U', (p, r))
+        u_qs = RotationTensor('U', (q, s))
+        f = AntiSymmetricTensor('f', (r,), (s,))
         pq = Fd(p) * F(q)
-        h0 = f * pq
+        h0 = u_pr * f * u_qs * pq
         rules = Rules(forbidden_tensor_blocks = {'U': ('ov', 'vo')})
         print("H0 = ", latex(h0))
         return h0, rules
@@ -96,25 +98,21 @@ class Operators:
     @staticmethod
     def ordmp_h1():
         idx_cls = Indices()
-        p, q, r, s, t, u, v, w = idx_cls.get_indices('pqrstuvw')['general']
+        p, q, r, s = idx_cls.get_indices('pqrs')['general']
         occ = idx_cls.get_generic_indices(n_o=1)['occ'][0]
 
         h = AntiSymmetricTensor('f', (p,), (q,))
         hr = AntiSymmetricTensor('f', (r,), (s,))
         v1 = AntiSymmetricTensor('V', (p, occ), (q, occ))
-        v2 = AntiSymmetricTensor('V', (t, u), (v, w))
+        v2 = AntiSymmetricTensor('V', (p, q), (r, s))
         
         u_pr = RotationTensor(None, (p, r))
         u_qs = RotationTensor(None, (q, s))
-        u_pt = RotationTensor(None, (p, t))
-        u_qu = RotationTensor(None, (q, u))
-        u_rv = RotationTensor(None, (r, v))
-        u_sw = RotationTensor(None, (s, w))
 
         pq = Fd(p) * F(q)
         pqsr = Fd(p) * Fd(q) * F(s) * F(r)
 
-        h1 = (u_pr * hr * u_qs - h - v1) * pq + Rational(1, 4) * u_pt*u_qu*u_rv*u_sw * v2 * pqsr
+        h1 = (-u_pr * hr * u_qs + h - v1) * pq + Rational(1, 4) * v2 * pqsr
         
         rules = Rules(forbidden_tensor_blocks = {'U': ('ov', 'vo')})
         print("H1 = ", latex(h1))

@@ -442,6 +442,7 @@ def _factor_short_intermediate(expr: e.Expr, itmd: EriOrbenergy,
                                            itmd_cls).sympy,
                 **remainder.assumptions
             )
+        print(term)
         # - build the new term including the itmd
         factored_term = _build_factored_term(remainder, pref, itmd_cls,
                                              itmd_indices)
