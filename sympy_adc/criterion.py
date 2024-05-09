@@ -3,12 +3,14 @@ from .indices import Indices
 from .simplify import simplify, simplify_unitary
 from .derivative import implicit_derivative, premade_deriv_dicts
 from .expr_container import Expr
-from .func import evaluate_deltas
+from .func import evaluate_deltas, wicks, remove_disconnected_terms, remove_mean_field_terms
 from .operators import Operators
 from .groundstate import GroundState
 from .spatial_orbitals import transform_to_spatial_orbitals
 from .sympy_objects import AntiSymmetricTensor, NonSymmetricTensor
 from .generate_code import generate_code
+
+from sympy import Add
 
 class Criterion:
 
@@ -30,19 +32,21 @@ class Criterion:
         return S.Zero
 
     def _preprocess(self, expr):
-        if not isinstance(expr, Expr):
-            expr = Expr(expr, real=self._real)
+        if isinstance(expr, Expr):
+            expr = expr.sympy
+        expr = Expr(expr, self._real)
         expr.expand_intermediates()
         expr.use_symbolic_denominators()
         expr = simplify_unitary(expr, t_name='U')
         expr = Expr(evaluate_deltas(expr.sympy, target_idx=self._target_idx), real=self._real)
+        
         if self._target_idx is None:
             expr = transform_to_spatial_orbitals(expr, '', '', restricted=self._restricted)
             expr = simplify(expr)
             return expr
         else:
-            raise NotImplementedError('Only scalar Criteria implemented.')
-
+            raise NotImplementedError('Only scalar quantities implemented so far.')
+                
     def _postprocess(self, expr, target_idx):
         if not isinstance(expr, Expr):
             expr = Expr(expr, real=self._real)
@@ -64,7 +68,9 @@ class Criterion:
             grad_oo_idx = indices.get_indices('ij', 'aa')['occ_a']
             grad_vv_idx = indices.get_indices('ab', 'aa')['virt_a']
             
+            print("Occupied Gradient")
             grad_oo = implicit_derivative(expr, 1, grad_oo_idx, deriv1)
+            print("Virtual Gradient")
             grad_vv = implicit_derivative(expr, 1, grad_vv_idx, deriv1)
 
             grad_oo = self._postprocess(grad_oo, grad_oo_idx)
@@ -107,8 +113,11 @@ class Criterion:
             hess_vvvv_idx = ((a, b), (c, d))
             hess_oovv_idx = ((i, j), (a, b))
             
+            print("Hessian Block 1")
             hess_oooo = implicit_derivative(expr, 2, hess_oooo_idx, deriv1, deriv2)
+            print("Hessian Block 2")
             hess_oovv = implicit_derivative(expr, 2, hess_oovv_idx, deriv1, deriv2)
+            print("Hessian Block 3")
             hess_vvvv = implicit_derivative(expr, 2, hess_vvvv_idx, deriv1, deriv2)
 
             hess_oooo_idx = hess_oooo_idx[0] + hess_oooo_idx[1]
@@ -238,8 +247,15 @@ class Criterion:
             import sys
             io = sys.stdout
         
-        # Gradient dump
+        # Expression dump
         output_lines = []
+        e = self.expr()
+        e = self._postprocess(self._preprocess(e), self._target_idx)
+        output_lines.append("Expression:\n")
+        output_lines.append(e.print_latex(terms_per_line=terms_per_line, 
+                                          spin_as_overbar=spin_as_overbar))
+
+        # Gradient dump
         for space, formula in self._grad.items():
             s = space.replace("_", "/").replace("a", r"\alpha").replace("b", r"\beta")
             t = self._build_dummy_tensor('G', self._grad_idx[space])
@@ -265,8 +281,22 @@ class Criterion:
             import sys
             io = sys.stdout
 
+        # Expression 
         itmd_index = 0
         codelines = []
+        e = self.expr()
+        e = self._postprocess(self._preprocess(e), self._target_idx)
+        ti = self._target_idx
+        if ti is None:
+            ti = []
+        code, ishift = generate_code(e, target_indices=ti, backend='einsum',
+                                     optimize_contractions=False, itmd_start_idx=itmd_index, 
+                                     strict_target_idx=False)
+        loc = f"{comment} " + "=" * 80 + f"\n{comment} EXPRESSION\n" + code
+        codelines.append(loc)
+
+        # Gradient
+        itmd_index = 0
         for space, formula in self._grad.items():
             code, ishift = generate_code(formula, target_indices=self._grad_idx[space],
                                          backend='einsum', optimize_contractions=False, 
@@ -275,6 +305,7 @@ class Criterion:
             itmd_index += ishift
             codelines.append(loc)
 
+        # Hessian
         itmd_index = 0
         for space, formula in self._hess.items():
             code, ishift = generate_code(formula, target_indices=self._hess_idx[space],
@@ -299,5 +330,85 @@ class MaxEnergy(Criterion):
         self._order = order
 
     def expr(self):
-        return self._mp.energy(self._order)
+        e = Expr(self._mp.energy(self._order), real=True)
+        return e
 
+class Variational(Criterion):
+
+    def __init__(self, order, operator, mp = None, restricted: bool = True, 
+                 remove_disconnected: bool = True, remove_mean_field: bool = True):
+        super().__init__("Variational", real=True, restricted=restricted)
+        self._h = operator
+        if mp is None:
+            self._mp = GroundState(self._h)
+        else:
+            self._mp = mp
+        self._order = order
+        self.rm_disc = remove_disconnected
+        self.rm_mf = remove_mean_field
+
+    def expr(self):
+        hamiltonian = self._h.h0[0] + self._h.h1[0]
+        ket = self._mp.psi(order=self._order-1, braket='ket')
+        bra = self._mp.psi(order=self._order-1, braket='bra')
+        numerator = wicks(bra * hamiltonian * ket, simplify_kronecker_deltas=True)
+        if self.rm_disc:
+            numerator = remove_disconnected_terms(Expr(numerator, real=True)).sympy
+        if self.rm_mf:
+            numerator = remove_mean_field_terms(Expr(numerator, real=True)).sympy
+        denominator = wicks(bra * ket, simplify_kronecker_deltas=True)
+        e = simplify(Expr(numerator)) / denominator
+        print("Expr: " + Expr(e).print_latex())
+        return e
+
+
+class Projective(Criterion):
+
+    def __init__(self, order, operator, mp = None, restricted: bool = True):
+        super().__init__("Projective", real=True, restricted=restricted)
+        self._h = operator
+        if mp is None:
+            self._mp = GroundState(self._h)
+        else:
+            self._mp = mp
+        self._order = order
+
+    def expr(self):
+        hamiltonian = self._h.h0[0] + self._h.h1[0]
+        ket = Add(*[self._mp.psi(order=i, braket='ket') for i in range(self._order)])
+        pb = self._mp.psi(order=self._order-1, braket='bra')
+        projective_bra = 1
+        for i in pb.args:
+            if not isinstance(i, AntiSymmetricTensor):
+                projective_bra *= i
+        pb_idx = tuple(set(Expr(projective_bra, real=True).idx))
+        energy = Add(*[self._mp.energy(order=i) for i in range(self._order+1)])
+        energy = simplify_unitary(Expr(energy), t_name='U', block_diagonal=True, evaluate_deltas=True)
+        energy = simplify(energy).sympy
+        e = projective_bra * hamiltonian * ket - energy * projective_bra * ket
+        e2 = wicks(e, simplify_kronecker_deltas=False)
+        e2 = evaluate_deltas(e2, target_idx=pb_idx)
+        e2 = simplify(Expr(e2))
+        print(f"Criterion Expr: {e2.substitute_contracted().print_latex(terms_per_line=2)}")
+        return e2
+
+class Norm(Criterion):
+
+    def __init__(self, order, operator, mp = None, restricted: bool = True):
+        super().__init__("Projective", real=True, restricted=restricted)
+        self._h = operator
+        if mp is None:
+            self._mp = GroundState(self._h)
+        else:
+            self._mp = mp
+        self._order = order
+
+    def expr(self):
+        # Each order correction is multiplied with itself
+        kets = [self._mp.psi(order=i, braket='ket') for i in range(self._order+1)]
+        bras = [self._mp.psi(order=i, braket='bra') for i in range(self._order+1)]
+        wf = Add(*[b*k for b, k in zip(bras, kets)])
+        e = Expr(wicks(wf, simplify_kronecker_deltas=True))
+        e = simplify_unitary(e, t_name='U', block_diagonal=True, evaluate_deltas=True)
+        e = simplify(e)
+        return e
