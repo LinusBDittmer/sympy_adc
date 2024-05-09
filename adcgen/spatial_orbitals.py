@@ -84,6 +84,9 @@ def integrate_spin(expr: Expr, target_idx: str, target_spin: str) -> Expr:
             result += term
         # - ensure that no index in the term is holding a spin
         term_indices = set(term.idx)
+        if len(term_indices) == 0:
+            result += term
+            continue
         if any(s.spin for s in term_indices):
             raise ValueError("The function assumes that the input expression "
                              "is expressed in terms of spin orbitals. Found "

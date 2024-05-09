@@ -403,7 +403,6 @@ class EriOrbenergy:
                     base = bracket.sympy
                 else:  # polynom
                     base, exponent = bracket.base_and_exponent
-                print(f"Cancelling: {e.Expr(base)}")
                 num -= base
                 # build the new denominator -> lower bracket exponent by 1
                 if exponent == 1:
@@ -454,6 +453,13 @@ class EriOrbenergy:
     def symbolic_denominator(self):
         symbolic_denom = e.Expr(1, **self.denom.assumptions)
         has_symbolic_denom = False
+        if len(self.denom_brackets) == 1:
+            if (self.denom_brackets[0] - 1).sympy is S.Zero:
+                symbolic_denom.set_antisym_tensors(
+                    symbolic_denom.antisym_tensors + ("D",)
+                )
+                return symbolic_denom
+        
         for bracket in self.denom_brackets:
             signs = {'-': set(), '+': set()}
             for term in bracket.terms:

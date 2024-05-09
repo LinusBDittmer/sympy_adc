@@ -102,3 +102,10 @@ class TestSimplify:
         expr = evaluate_deltas(expr.sympy)
         assert isinstance(expr, NonSymmetricTensor)
         assert expr.indices[0] == expr.indices[1] and expr.indices[0].space[0] == 'v'
+
+        # Cancel off-diagonal unitary tensors
+        expr = Expr(
+            NonSymmetricTensor('U', (i, a)) * NonSymmetricTensor('U', (j, k))        
+        )
+        assert simplify_unitary(expr, t_name='U', block_diagonal=True).sympy is S.Zero
+        assert simplify_unitary(expr, t_name='U').sympy is not S.Zero

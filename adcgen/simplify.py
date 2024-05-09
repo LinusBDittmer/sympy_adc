@@ -289,7 +289,7 @@ def simplify_unitary(expr: e.Expr, t_name: str,
         # collect the indices of all unitary tensors in the term
         unitary_tensors = [i for i, o in enumerate(obj) if o.name == t_name
                            for _ in range(o.exponent)]
-
+        
         # only implemented for 2 dimensional unitary tensors
         if any(len(obj[i].idx) != 2 for i in unitary_tensors):
             raise NotImplementedError("Did only implement the case of 2D "

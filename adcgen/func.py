@@ -1,6 +1,7 @@
 from .expr_container import Expr, Term
 from .misc import Inputerror
 from .rules import Rules
+from .simplify import simplify
 from .indices import Index, get_symbols, split_idx_string, Indices
 from .sympy_objects import (
     KroneckerDelta, NonSymmetricTensor, AntiSymmetricTensor, SymmetricTensor
@@ -12,6 +13,8 @@ from sympy.physics.secondquant import (
 from sympy import S, Add, Mul, Pow, sqrt
 
 from itertools import product
+
+from math import factorial
 
 def eri_unitary_deriv1(eri_idx: [Index], deriv_idx: [Index], notation: str = 'c'):
     """Calculates the first derivative of an ERI with respect to a unitary
@@ -143,8 +146,8 @@ def eri_unitary_deriv2(eri_idx: [Index], deriv_idx: [Index], notation: str = 'c'
     
     a0, b0, a1, b1 = aux_symbols
     
-    print(f"ERI symbols: {eri0}, {eri1}, {eri2}, {eri3}")
-    print(f"Aux symbols: {a0}, {b0}, {a1}, {b1}")
+    #print(f"ERI symbols: {eri0}, {eri1}, {eri2}, {eri3}")
+    #print(f"Aux symbols: {a0}, {b0}, {a1}, {b1}")
 
     v = SymmetricTensor('v', (a0, b0), (a1, b1))
 
@@ -173,6 +176,28 @@ def eri_unitary_deriv2(eri_idx: [Index], deriv_idx: [Index], notation: str = 'c'
 
     # Returning the complete expression
     return v * expr
+
+def commutator(e1: Expr, e2: Expr) -> Expr:
+    tidx1 = e1._target_idx
+    tidx2 = e2._target_idx
+    if tidx1 is None or tidx2 is None:
+        raise NotImplementedError('Target indices must be defined')
+    if len(tidx1) != 2 or len(tidx2) != 2:
+        raise NotImplementedError('Commutators are only implemented for matrices with 2 target indices. Found {len(tidx1)} / {len(tidx2)}')
+    spaces = set([i.space for i in tidx1+tidx2])
+    spins = set([i.spin for i in tidx1+tidx2])
+    if len(spaces) > 1 or len(spins) > 1:
+        raise NotImplementedError('Commutators are only available for qudratic matrices with equal spin and spatial parts.')
+    idx = Indices()
+    g1, g2, cont_idx = idx.get_generic_copies((tidx1[0], tidx2[1], tidx1[1]))
+    e1_c1 = e1.copy().subs(tidx1[1], cont_idx).subs(tidx1[0], g1)
+    e2_c1 = e2.copy().subs(tidx2[0], cont_idx).subs(tidx2[1], g2)
+    e1_c2 = e1.copy().subs(tidx1[0], cont_idx).subs(tidx1[1], g2)
+    e2_c2 = e2.copy().subs(tidx2[1], cont_idx).subs(tidx2[0], g1)
+    for e in (e1_c1, e2_c1, e1_c2, e2_c2):
+        e.set_target_idx((g1, g2))
+    return e1_c1 * e2_c1 - e1_c2 * e2_c2
+
 
 def is_term_connected(term: Term) -> bool:
     if len(term.objects) == 1:
@@ -224,6 +249,17 @@ def remove_mean_field_terms(expr: Expr):
         if not is_term_mean_field(term):
             e_new += term
     return Expr(e_new)
+
+def similarity_transform(operator: Expr, sim_op: Expr, max_order: int = 10):
+    res = operator
+    prev_expr = operator
+    for i in range(1, max_order+1):
+        new_comm = commutator(prev_expr, sim_op)
+        if new_comm is S.Zero:
+            break
+        res += Rational(1, factorial(i)) * new_comm
+        prev_expr = new_comm
+    return prev_expr
 
 def gen_term_orders(order, term_length, min_order):
     """Generates all combinations that contribute to the n'th order
@@ -509,7 +545,6 @@ def evaluate_deltas(expr, target_idx=None):
             # -> killable has to be of length 1
             elif preferred not in target_idx \
                     and d.indices_contain_equal_information:
-                print(preferred, killable)
                 expr = expr.subs(preferred, killable)
                 if len(deltas) > 1:
                     return evaluate_deltas(expr, target_idx)

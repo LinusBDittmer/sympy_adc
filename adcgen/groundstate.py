@@ -87,10 +87,6 @@ class GroundState:
             additional_idx = self.indices.get_generic_indices(n_o=1, n_v=1)
             idx['occ'].extend(additional_idx['occ'])
             idx['virt'].extend(additional_idx['virt'])
-            if not self.canonical:
-                additional_rot_idx = self.indices.get_generic_indices(n_o=1, n_v=1)
-                rot_idx['occ'].extend(additional_rot_idx['occ'])
-                rot_idx['virt'].extend(additional_rot_idx['virt']) 
             # skip singles for the first order wavefunction if
             # they are not requested
             if order == 1 and not self.singles and excitation == 1:
@@ -98,13 +94,8 @@ class GroundState:
             t = AntiSymmetricTensor(
                 tensor_string[braket], idx["virt"], idx["occ"]
             )
-            if self.canonical:
-                operators = Mul(*[Fd(s) for s in idx[get_ov('virt')]]) * \
-                    Mul(*[F(s) for s in reversed(idx[get_ov('occ')])])
-            else:
-                op_occ = [RotationTensor(None, (s, rot_idx[get_ov('occ')][jocc])) * F(s) for jocc, s in enumerate(idx[get_ov('occ')])]
-                op_virt = [RotationTensor(None, (s, rot_idx[get_ov('virt')][jvirt])) * Fd(s) for jvirt, s in enumerate(idx[get_ov('virt')])]
-                operators = Mul(*op_virt) * Mul(*op_occ)
+            operators = Mul(*[Fd(s) for s in idx[get_ov('virt')]]) * \
+                Mul(*[F(s) for s in reversed(idx[get_ov('occ')])])
             # prefactor for lifting index restrictions
             prefactor = Rational(1, factorial(excitation) ** 2)
             # For signs: Decided to subtract all Doubles to stay consistent

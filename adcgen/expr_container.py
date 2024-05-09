@@ -207,7 +207,7 @@ class Expr(Container):
 
     def make_real(self):
         """Makes the expression real by removing all 'c' in tensor names.
-           This only renames the tensor, but their might be more to simplify
+           This only renames the tensor, but there might be more to simplify
            by swapping bra/ket.
            """
         # need to have the option return_sympy at lower levels, because
@@ -215,7 +215,6 @@ class Expr(Container):
 
         if self._real:
             return self
-
         self._real = True
         sym_tensors = self._sym_tensors
         if 'f' not in sym_tensors or 'V' not in sym_tensors:
@@ -983,6 +982,9 @@ class Term(Container):
             [o.to_latex_str(only_pull_out_pref, spin_as_overbar)
              for o in self.objects if o.type != 'prefactor']
         )
+        # Catch 1 or -1
+        if tex_str.strip() in ('+', '-'):
+            tex_str = tex_str[0] + "1"
         return tex_str
 
     def optimized_contractions(self, target_indices: str = None,
@@ -1625,7 +1627,6 @@ class Obj(Container):
     def expand_intermediates(self, target: tuple = None,
                              return_sympy: bool = False):
         from .intermediates import Intermediates
-
         # intermediates only defined for tensors
         if 'tensor' not in self.type:
             if return_sympy:
@@ -1747,6 +1748,8 @@ class Obj(Container):
                 return ("aaaa", "aabb", "bbaa", "bbbb")
             elif name == "U":  # Rotation tensor
                 return ("aa", "bb")
+            elif name == "f":  # Fock matrix
+                return ("aa", "bb")
         elif t == "delta":
             # spins have to be equal
             return ("aa", "bb")
@@ -1835,6 +1838,8 @@ class Obj(Container):
                     order_str = "}^{(" + order + ")}"
                 elif name == 'e':  # orbital energies as epsilon
                     name = "\\varepsilon"
+                elif name == 'D':
+                    name = "\\Delta"
                 elif name[0] == 'p' and name[1:].isnumeric():  # mp densities
                     order = name[1:]
                     name = "{\\rho"
