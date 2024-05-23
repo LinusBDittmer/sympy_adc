@@ -2,6 +2,7 @@ from .indices import Index, sort_idx_canonical
 from . import expr_container as e
 from .misc import cached_member, cached_property, Inputerror
 from .eri_orbenergy import EriOrbenergy
+from .logger import log
 from sympy import S
 from collections import defaultdict
 from itertools import chain, combinations

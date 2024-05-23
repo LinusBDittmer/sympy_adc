@@ -2,15 +2,15 @@ from sympy import Rational, latex, sympify, Mul, S
 from sympy.physics.secondquant import NO, F, Fd
 from math import factorial
 
-from .sympy_objects import (AntiSymmetricTensor, RotationTensor)
+from .sympy_objects import (AntiSymmetricTensor, NonSymmetricTensor)
 from .indices import Indices, n_ov_from_space
 from .misc import (cached_member, Inputerror,
                    process_arguments, transform_to_tuple, validate_input)
-from .simplify import simplify
-from .func import gen_term_orders, wicks
+from .simplify import simplify, remove_tensor
+from .func import gen_term_orders, wicks, evaluate_deltas
 from .expr_container import Expr
 from .operators import Operators
-
+from .logger import log
 
 class GroundState:
     def __init__(self, hamiltonian, first_order_singles=False, canonical=True):
@@ -43,7 +43,7 @@ class GroundState:
         # guess option 2 is nicer, because energy is more readable and shorter
         e = simplify(Expr(e))
         e = self.indices.substitute_with_generic(e)
-        print(f"E^({order}) = {e}")
+        log(f"E^({order}) = {e}")
         return e.sympy
 
     def psi(self, order, braket):
@@ -63,7 +63,7 @@ class GroundState:
 
         # catch 0th order wavefunction
         if order == 0:
-            print(f"Build gs({order}) {braket} = 1")
+            log(f"Build gs({order}) {braket} = 1")
             return sympify(1)
 
         # generalized gs wavefunction generation
@@ -107,7 +107,7 @@ class GroundState:
                 psi -= prefactor * t * NO(operators)
             else:
                 psi += prefactor * t * NO(operators)
-        print(f"Build gs({order}) {braket} = ", latex(psi))
+        log(f"Build gs({order}) {braket} = ", latex(psi))
         return psi
 
     def amplitude(self, order, space, indices):
@@ -281,12 +281,12 @@ class GroundState:
             res += wicks(i1, simplify_kronecker_deltas=True)
         # simplify the result by permuting contracted indices
         res = simplify(Expr(res))
-        print(f"Build GS S^({order}) = {res}")
+        log(f"Build GS S^({order}) = {res}")
         return res.sympy
 
     @process_arguments
     @cached_member
-    def expectation_value(self, order, opstring):
+    def expectation_value(self, order, opstring, idx_list=None):
         """Computes the expectation value for a given operator. The operator
            is defined by the number of creation and annihilation operators
            that must be provided as string. For example a two particle
@@ -305,7 +305,7 @@ class GroundState:
         orders = gen_term_orders(order=order, term_length=2, min_order=0)
         res = 0
         # get the operator
-        op, rules = self.h.operator(opstring=opstring)
+        op, rules = self.h.operator(opstring=opstring, idx_list=idx_list)
         # iterate over all norm*d combinations of n'th order
         for norm_term in orders:
             norm = self.norm_factor(norm_term[0])
@@ -318,9 +318,96 @@ class GroundState:
             d = 0
             for term in orders_d:
                 i1 = wfn[term[0]]['bra'] * op * wfn[term[1]]['ket']
-                d += wicks(i1, simplify_kronecker_deltas=True, rules=rules)
+                if idx_list is None:
+                    d += wicks(i1, simplify_kronecker_deltas=True, rules=rules)
+                else:
+                    d1 = wicks(i1, simplify_kronecker_deltas=False, rules=rules)
+                    d += evaluate_deltas(d1, target_idx=idx_list[0]+idx_list[1])
             res += (norm * d).expand()
-        return simplify(Expr(res)).sympy
+        res = simplify(Expr(res)).sympy
+        log(f"Expectation value {opstring} ({order}): {res}")
+        return res
+
+    def density_matrix(self, order, indices=None, particles=1, cumulant=False,
+                       remove_dummy_tensor=True):
+        """
+        General implementation for any reduced and cumulant reduced density
+        matrix. The N-particle reduced density matrix (n-RDM) is given as:
+
+        n-RDM = < c^n a^n >
+
+        The factorisable part of the n-RDM is given by the n-fold wedge product
+        of the 1-RDM. Therefore, the N-particle cumulant reduced density matrix
+        (n-CRDM) is given as:
+
+        n-CRDM = < c^n a^n > - /\^n <ca>
+
+        Where the wedge product can be evaluated as the determinant of an nxn
+        matrix whose rows and columns are given by 1-RDM with the correct
+        indices. WARNING: The determinant is computed with Laplace's algorithm
+        which scales as N! with respect to the number of particles.
+        """
+        validate_input(order=order, indices=indices)
+        if particles < 1:
+            raise Inputerror(f"Reduced density matrices need at least 1 "
+                             + "particle.")
+        if indices is not None:
+            if len(indices) != 2 * particles:
+                raise Inputerror(f"Incorrect number of indices given, received "
+                    + f"{len(indices)}, required for {particles} particles: "
+                    + f"{2 * particles}")
+            idx1_dict = self.indices.get_indices(indices[:particles])
+            idx2_dict = self.indices.get_indices(indices[particles:])
+            idx1, idx2 = [], []
+            for k, v in idx1_dict.items():
+                idx1.extend(v)
+            for k, v in idx2_dict.items():
+                idx2.extend(v)
+        else:
+            idxs = self.indices.get_generic_indices(n_g=particles*2)["general"]
+            idx1 = idxs[:particles]
+            idx2 = idxs[particles:]
+
+        idx1 = tuple(idx1)
+        idx2 = tuple(idx2)
+
+        def _build_wedge_product():
+            prod = []
+            for i, p1 in enumerate(idx1):
+                prodrow = []
+                for j, p2 in enumerate(idx2):
+                    prodrow.append(self.expectation_value(order, 'ca',
+                                   idx_list=((p2,), (p1,))))
+                prod.append(prodrow)
+            return prod
+
+        def _determinant(matrix):
+            if len(matrix) == 1:
+                return matrix[0][0]
+            det = 0
+            for c in range(len(matrix)):
+                submatrix = [row[:c] + row[c+1:] for row in matrix[1:]]
+                sub_det = _determinant(submatrix)
+                det += ((-1) ** c) * matrix[0][c] * sub_det
+            return det
+
+        subtract = 0
+        if cumulant and particles > 1:
+            prodmat = _build_wedge_product()
+            subtract = _determinant(prodmat)
+
+        dm_full = self.expectation_value(order, 'c'*particles + 'a'*particles,
+                                         idx_list=(idx2, idx1))
+        dm = simplify(Expr(dm_full - subtract, target_idx=idx2+idx1))
+        if remove_dummy_tensor:
+            terms = remove_tensor(dm, 'd')
+            print(f"Zeroth term: {tuple(terms.values())[0]}")
+            dm = 0
+            for k, term in terms.items():
+                dm += term
+        dm = evaluate_deltas(dm.sympy, target_idx=idx2+idx1)
+        log(f"Density matrix ({order}): {dm}")
+        return simplify(Expr(dm, target_idx=idx2+idx1)).sympy
 
     def norm_factor(self, order):
         """Computes all nth order terms of:
@@ -350,7 +437,7 @@ class GroundState:
                     if i1 is S.Zero:
                         break
                 norm_factor += i1.expand()
-        print(f"norm_factor^({order}): {latex(norm_factor)}")
+        log(f"norm_factor^({order}): {latex(norm_factor)}")
         return norm_factor
 
     def expand_norm_factor(self, order, min_order=2):

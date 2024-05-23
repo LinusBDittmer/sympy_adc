@@ -2,6 +2,7 @@ from . import expr_container as e
 from .misc import Inputerror
 from .sort_expr import exploit_perm_sym
 from .indices import sort_idx_canonical
+from .logger import log
 from collections import namedtuple
 
 scaling = namedtuple('scaling', ['total', 'g', 'v', 'o', 'mem'])

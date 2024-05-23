@@ -1,6 +1,7 @@
 from .misc import Inputerror
 from . import expr_container as e
 from .sympy_objects import SymmetricTensor
+from .logger import log
 from sympy import Pow, S, Mul, Basic
 
 

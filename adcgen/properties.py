@@ -5,6 +5,7 @@ from .misc import (Inputerror, cached_member, transform_to_tuple,
 from .simplify import simplify
 from .expr_container import Expr
 from .rules import Rules
+from .logger import log
 from sympy import sqrt, S, sympify
 from math import factorial
 

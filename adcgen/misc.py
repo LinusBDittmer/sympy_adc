@@ -1,6 +1,6 @@
+from .logger import log
 from functools import wraps
 import inspect
-
 
 class Inputerror(ValueError):
     pass

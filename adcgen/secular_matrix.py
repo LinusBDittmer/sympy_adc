@@ -9,7 +9,7 @@ from .func import gen_term_orders, wicks, evaluate_deltas
 from .simplify import simplify
 from .expr_container import Expr
 from .rules import Rules
-
+from .logger import log
 
 class SecularMatrix:
     def __init__(self, isr):
@@ -199,7 +199,7 @@ class SecularMatrix:
             factorial(n_ov["n_occ"]) * factorial(n_ov["n_virt"])
         )
 
-        # print(f"prefactors for {space} MVP from block {block}: "
+        # log(f"prefactors for {space} MVP from block {block}: "
         #       f"{prefactor_mvp}, {prefactor_ampl}.")
         return evaluate_deltas(
             (prefactor_mvp * prefactor_ampl * m * y).expand()

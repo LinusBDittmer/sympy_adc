@@ -5,7 +5,7 @@ from sympy.core.logic import fuzzy_not
 from sympy import sympify, Tuple, Symbol, S
 from .misc import Inputerror
 from .indices import Index, sort_idx_canonical
-
+from .logger import log
 
 class AntiSymmetricTensor(TensorSymbol):
     """Based on the AntiSymmetricTensor from sympy.physics.secondquant.

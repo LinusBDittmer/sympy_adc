@@ -2,6 +2,7 @@ from . import expr_container as e
 from .indices import minimize_tensor_indices, Index
 from .simplify import simplify
 from .intermediates import Intermediates
+from .logger import log
 from sympy import Rational, diff, S
 from sympy import Add, Mul, Pow
 
@@ -143,10 +144,10 @@ def _implicit_deriv1(expr, deriv_idx: [Index], deriv_dict: dict) -> e.Expr:
         # f = a + b
         # f' = a' + b'
         d = Add(*[_implicit_deriv1(a, deriv_idx, deriv_dict) for a in expr.args])
-        #print("After Addition")
-        #print(expr)
-        #print(d)
-        #print()
+        #log("After Addition")
+        #log(expr)
+        #log(d)
+        #log()
         return d
     # Product rule
     if isinstance(expr, Mul):
@@ -159,10 +160,10 @@ def _implicit_deriv1(expr, deriv_idx: [Index], deriv_dict: dict) -> e.Expr:
             pterms.insert(i, adiff)
             new_terms.append(Mul(*pterms))
         d = Add(*new_terms)
-        #print("After Multiplication")
-        #print(expr)
-        #print(d)
-        #print()
+        #log("After Multiplication")
+        #log(expr)
+        #log(d)
+        #log()
         return d
 
     # Polynomials
@@ -171,16 +172,16 @@ def _implicit_deriv1(expr, deriv_idx: [Index], deriv_dict: dict) -> e.Expr:
         # f' = n * a^(n-1) * a'
         new_expr = Pow(expr.base, expr.exp-1) * expr.exp
         d = new_expr * _implicit_deriv1(expr.base, deriv_idx, deriv_dict)
-        #print("After Powering:")
-        #print(expr)
-        #print(d)
-        #print()
+        #log("After Powering:")
+        #log(expr)
+        #log(d)
+        #log()
         return d
 
     # Direct derivative
     if hasattr(expr, 'symbol'):
         if str(expr.symbol) in deriv_dict:
-            #print("Direct derivative ")
+            #log("Direct derivative ")
             idx = None
             if hasattr(expr, 'indices'):
                 idx = expr.indices
@@ -189,9 +190,9 @@ def _implicit_deriv1(expr, deriv_idx: [Index], deriv_dict: dict) -> e.Expr:
             elif hasattr(expr, 'upper') and hasattr(expr, 'lower'):
                 idx = expr.upper + expr.lower
             d = deriv_dict[str(expr.symbol)](idx, deriv_idx)
-            #print(expr)
-            #print(d)
-            #print()
+            #log(expr)
+            #log(d)
+            #log()
             return d
     return 0
 

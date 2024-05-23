@@ -9,6 +9,7 @@ from .groundstate import GroundState
 from .spatial_orbitals import transform_to_spatial_orbitals
 from .sympy_objects import AntiSymmetricTensor, NonSymmetricTensor
 from .generate_code import generate_code
+from .logger import log
 
 from sympy import Add
 
@@ -68,9 +69,9 @@ class Criterion:
             grad_oo_idx = indices.get_indices('ij', 'aa')['occ_a']
             grad_vv_idx = indices.get_indices('ab', 'aa')['virt_a']
             
-            print("Occupied Gradient")
+            log("Occupied Gradient")
             grad_oo = implicit_derivative(expr, 1, grad_oo_idx, deriv1)
-            print("Virtual Gradient")
+            log("Virtual Gradient")
             grad_vv = implicit_derivative(expr, 1, grad_vv_idx, deriv1)
 
             grad_oo = self._postprocess(grad_oo, grad_oo_idx)
@@ -113,11 +114,11 @@ class Criterion:
             hess_vvvv_idx = ((a, b), (c, d))
             hess_oovv_idx = ((i, j), (a, b))
             
-            print("Hessian Block 1")
+            log("Hessian Block 1")
             hess_oooo = implicit_derivative(expr, 2, hess_oooo_idx, deriv1, deriv2)
-            print("Hessian Block 2")
+            log("Hessian Block 2")
             hess_oovv = implicit_derivative(expr, 2, hess_oovv_idx, deriv1, deriv2)
-            print("Hessian Block 3")
+            log("Hessian Block 3")
             hess_vvvv = implicit_derivative(expr, 2, hess_vvvv_idx, deriv1, deriv2)
 
             hess_oooo_idx = hess_oooo_idx[0] + hess_oooo_idx[1]
@@ -252,7 +253,7 @@ class Criterion:
         e = self.expr()
         e = self._postprocess(self._preprocess(e), self._target_idx)
         output_lines.append("Expression:\n")
-        output_lines.append(e.print_latex(terms_per_line=terms_per_line, 
+        output_lines.append(e.to_latex_str(terms_per_line=terms_per_line, 
                                           spin_as_overbar=spin_as_overbar))
 
         # Gradient dump
@@ -260,8 +261,8 @@ class Criterion:
             s = space.replace("_", "/").replace("a", r"\alpha").replace("b", r"\beta")
             t = self._build_dummy_tensor('G', self._grad_idx[space])
             loc = f"Gradient block {s}:\n"
-            loc += t.print_latex(spin_as_overbar=spin_as_overbar) + " = "
-            loc += formula.print_latex(terms_per_line=terms_per_line,
+            loc += t.to_latex_str(spin_as_overbar=spin_as_overbar) + " = "
+            loc += formula.to_latex_str(terms_per_line=terms_per_line,
                                        spin_as_overbar=spin_as_overbar)
             output_lines.append(loc)
         # Hessian dump
@@ -269,8 +270,8 @@ class Criterion:
             s = space.replace("_", "/").replace("a", r"\alpha").replace("b", r"\beta")
             t = self._build_dummy_tensor('H', self._hess_idx[space])
             loc = f"Hessian block {s}:\n"
-            loc += t.print_latex(spin_as_overbar=spin_as_overbar) + " = "
-            loc += formula.print_latex(terms_per_line=terms_per_line,
+            loc += t.to_latex_str(spin_as_overbar=spin_as_overbar) + " = "
+            loc += formula.to_latex_str(terms_per_line=terms_per_line,
                    spin_as_overbar=spin_as_overbar)
             output_lines.append(loc)
 
@@ -358,7 +359,7 @@ class Variational(Criterion):
             numerator = remove_mean_field_terms(Expr(numerator, real=True)).sympy
         denominator = wicks(bra * ket, simplify_kronecker_deltas=True)
         e = simplify(Expr(numerator)) / denominator
-        print("Expr: " + Expr(e).print_latex())
+        log("Expr: " + Expr(e).to_latex_str())
         return e
 
 
@@ -389,7 +390,7 @@ class Projective(Criterion):
         e2 = wicks(e, simplify_kronecker_deltas=False)
         e2 = evaluate_deltas(e2, target_idx=pb_idx)
         e2 = simplify(Expr(e2))
-        print(f"Criterion Expr: {e2.substitute_contracted().print_latex(terms_per_line=2)}")
+        log(f"Criterion Expr: {e2.substitute_contracted().to_latex_str(terms_per_line=2)}")
         return e2
 
 class Norm(Criterion):

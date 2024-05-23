@@ -6,9 +6,10 @@ from .indices import Index
 from .misc import Inputerror, Singleton, cached_property, cached_member
 from . import expr_container as e
 from .eri_orbenergy import EriOrbenergy
-from .sympy_objects import NonSymmetricTensor, AntiSymmetricTensor, RotationTensor
+from .sympy_objects import NonSymmetricTensor, AntiSymmetricTensor
 from .symmetry import LazyTermMap
 from .spatial_orbitals import allowed_spin_blocks
+from .logger import log
 
 from sympy import S, Rational, Pow
 
@@ -224,23 +225,23 @@ class RegisteredIntermediate:
         for term in reduced:
             itmd += term.factor()
 
-        print('\n', '-'*80, sep='')
-        print(f"Preparing Intermediate: Factoring {factored_itmds}")
+        log('\n', '-'*80, sep='')
+        log(f"Preparing Intermediate: Factoring {factored_itmds}")
 
         if factored_itmds:
             available = Intermediates().available
             # iterate through factored_itmds and factor them one after another
             # in the simplified base itmd
             for i, it in enumerate(factored_itmds):
-                print('-'*80)
-                print(f"Factoring {it} in {self.name}:")
+                log('-'*80)
+                log(f"Factoring {it} in {self.name}:")
                 itmd = available[it].factor_itmd(
                     itmd, factored_itmds=factored_itmds[:i],
                     max_order=self.order
                 )
-        print('\n', '-'*80, sep='')
-        print(f"Done with factoring {factored_itmds} in {self.name}")
-        print('-'*80)
+        log('\n', '-'*80, sep='')
+        log(f"Done with factoring {factored_itmds} in {self.name}")
+        log('-'*80)
         return itmd
 
     def factor_itmd(self, expr: e.Expr, factored_itmds: tuple[str] = tuple(),
@@ -451,7 +452,7 @@ class t2_1(RegisteredIntermediate):
             eri = term.cancel_eri_objects(eri_obj_to_remove)
             # - collect the remaining objects in the term and add to result
             factored_term *= term.pref * eri * term.num / denom
-            print(f"\nFactoring {self.name} in:\n{term}\nresult:\n"
+            log(f"\nFactoring {self.name} in:\n{term}\nresult:\n"
                   f"{EriOrbenergy(factored_term)}")
             factored += factored_term
         return factored
@@ -1297,8 +1298,8 @@ class f_trans_oo(RegisteredIntermediate):
         i, j = get_symbols(self.default_idx)
         # generate additional contracted indices (2o)
         p, q = get_symbols('pq')
-        rot1 = RotationTensor('U', (i, p))
-        rot2 = RotationTensor('U', (j, q))
+        rot1 = NonSymmetricTensor('U', (i, p))
+        rot2 = NonSymmetricTensor('U', (j, q))
         f = AntiSymmetricTensor('f', (p,), (q,))
         return base_expr(rot1*f*rot2, (i, j), (p, q))
 
@@ -1316,8 +1317,8 @@ class f_trans_ov(RegisteredIntermediate):
         i, a = get_symbols(self.default_idx)
         # generate additional contracted indices (2o)
         p, q = get_symbols('pq')
-        rot1 = RotationTensor('U', (i, p))
-        rot2 = RotationTensor('U', (a, q))
+        rot1 = NonSymmetricTensor('U', (i, p))
+        rot2 = NonSymmetricTensor('U', (a, q))
         f = AntiSymmetricTensor('f', (p,), (q,))
         return base_expr(rot1*f*rot2, (i, a), (p, q))
 
@@ -1335,8 +1336,8 @@ class f_trans_vo(RegisteredIntermediate):
         a, i = get_symbols(self.default_idx)
         # generate additional contracted indices (2o)
         p, q = get_symbols('pq')
-        rot1 = RotationTensor('U', (a, p))
-        rot2 = RotationTensor('U', (i, q))
+        rot1 = NonSymmetricTensor('U', (a, p))
+        rot2 = NonSymmetricTensor('U', (i, q))
         f = AntiSymmetricTensor('f', (p,), (q,))
         return base_expr(rot1*f*rot2, (a, i), (p, q))
 
@@ -1354,8 +1355,8 @@ class f_trans_vv(RegisteredIntermediate):
         a, b = get_symbols(self.default_idx)
         # generate additional contracted indices (2o)
         p, q = get_symbols('pq')
-        rot1 = RotationTensor('U', (a, p))
-        rot2 = RotationTensor('U', (b, q))
+        rot1 = NonSymmetricTensor('U', (a, p))
+        rot2 = NonSymmetricTensor('U', (b, q))
         f = AntiSymmetricTensor('f', (p,), (q,))
         return base_expr(rot1*f*rot2, (a, b), (p, q))
 
@@ -1373,10 +1374,10 @@ class eri_trans_oooo(RegisteredIntermediate):
         i, j, k, l = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (i, p))
-        r2 = RotationTensor('U', (j, q))
-        r3 = RotationTensor('U', (k, r))
-        r4 = RotationTensor('U', (l, s))
+        r1 = NonSymmetricTensor('U', (i, p))
+        r2 = NonSymmetricTensor('U', (j, q))
+        r3 = NonSymmetricTensor('U', (k, r))
+        r4 = NonSymmetricTensor('U', (l, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (i, j, k, l), (p, q, r, s))
 
@@ -1394,10 +1395,10 @@ class eri_trans_ooov(RegisteredIntermediate):
         i, j, k, a = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (i, p))
-        r2 = RotationTensor('U', (j, q))
-        r3 = RotationTensor('U', (k, r))
-        r4 = RotationTensor('U', (a, s))
+        r1 = NonSymmetricTensor('U', (i, p))
+        r2 = NonSymmetricTensor('U', (j, q))
+        r3 = NonSymmetricTensor('U', (k, r))
+        r4 = NonSymmetricTensor('U', (a, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (i, j, k, a), (p, q, r, s))
 
@@ -1416,10 +1417,10 @@ class eri_trans_oovo(RegisteredIntermediate):
         i, j, a, k = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (i, p))
-        r2 = RotationTensor('U', (j, q))
-        r3 = RotationTensor('U', (a, r))
-        r4 = RotationTensor('U', (k, s))
+        r1 = NonSymmetricTensor('U', (i, p))
+        r2 = NonSymmetricTensor('U', (j, q))
+        r3 = NonSymmetricTensor('U', (a, r))
+        r4 = NonSymmetricTensor('U', (k, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (i, j, a, k), (p, q, r, s))
 
@@ -1437,10 +1438,10 @@ class eri_trans_ovoo(RegisteredIntermediate):
         i, a, j, k = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (i, p))
-        r2 = RotationTensor('U', (a, q))
-        r3 = RotationTensor('U', (j, r))
-        r4 = RotationTensor('U', (k, s))
+        r1 = NonSymmetricTensor('U', (i, p))
+        r2 = NonSymmetricTensor('U', (a, q))
+        r3 = NonSymmetricTensor('U', (j, r))
+        r4 = NonSymmetricTensor('U', (k, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (i, a, j, k), (p, q, r, s))
 
@@ -1458,10 +1459,10 @@ class eri_trans_vooo(RegisteredIntermediate):
         a, i, j, k = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (a, p))
-        r2 = RotationTensor('U', (i, q))
-        r3 = RotationTensor('U', (j, r))
-        r4 = RotationTensor('U', (k, s))
+        r1 = NonSymmetricTensor('U', (a, p))
+        r2 = NonSymmetricTensor('U', (i, q))
+        r3 = NonSymmetricTensor('U', (j, r))
+        r4 = NonSymmetricTensor('U', (k, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (a, i, j, k), (p, q, r, s))
 
@@ -1480,10 +1481,10 @@ class eri_trans_oovv(RegisteredIntermediate):
         i, j, a, b = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (i, p))
-        r2 = RotationTensor('U', (j, q))
-        r3 = RotationTensor('U', (a, r))
-        r4 = RotationTensor('U', (b, s))
+        r1 = NonSymmetricTensor('U', (i, p))
+        r2 = NonSymmetricTensor('U', (j, q))
+        r3 = NonSymmetricTensor('U', (a, r))
+        r4 = NonSymmetricTensor('U', (b, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (i, j, a, b), (p, q, r, s))
 
@@ -1501,10 +1502,10 @@ class eri_trans_ovov(RegisteredIntermediate):
         i, a, j, b = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (i, p))
-        r2 = RotationTensor('U', (a, q))
-        r3 = RotationTensor('U', (j, r))
-        r4 = RotationTensor('U', (b, s))
+        r1 = NonSymmetricTensor('U', (i, p))
+        r2 = NonSymmetricTensor('U', (a, q))
+        r3 = NonSymmetricTensor('U', (j, r))
+        r4 = NonSymmetricTensor('U', (b, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (i, a, j, b), (p, q, r, s))
 
@@ -1523,10 +1524,10 @@ class eri_trans_voov(RegisteredIntermediate):
         a, i, j, b = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (a, p))
-        r2 = RotationTensor('U', (i, q))
-        r3 = RotationTensor('U', (j, r))
-        r4 = RotationTensor('U', (b, s))
+        r1 = NonSymmetricTensor('U', (a, p))
+        r2 = NonSymmetricTensor('U', (i, q))
+        r3 = NonSymmetricTensor('U', (j, r))
+        r4 = NonSymmetricTensor('U', (b, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (a, i, j, b), (p, q, r, s))
 
@@ -1544,10 +1545,10 @@ class eri_trans_ovvo(RegisteredIntermediate):
         i, a, b, j = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (i, p))
-        r2 = RotationTensor('U', (a, q))
-        r3 = RotationTensor('U', (b, r))
-        r4 = RotationTensor('U', (j, s))
+        r1 = NonSymmetricTensor('U', (i, p))
+        r2 = NonSymmetricTensor('U', (a, q))
+        r3 = NonSymmetricTensor('U', (b, r))
+        r4 = NonSymmetricTensor('U', (j, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (i, a, b, j), (p, q, r, s))
 
@@ -1565,10 +1566,10 @@ class eri_trans_vovo(RegisteredIntermediate):
         a, i, b, j = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (a, p))
-        r2 = RotationTensor('U', (i, q))
-        r3 = RotationTensor('U', (b, r))
-        r4 = RotationTensor('U', (j, s))
+        r1 = NonSymmetricTensor('U', (a, p))
+        r2 = NonSymmetricTensor('U', (i, q))
+        r3 = NonSymmetricTensor('U', (b, r))
+        r4 = NonSymmetricTensor('U', (j, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (a, i, b, j), (p, q, r, s))
 
@@ -1586,10 +1587,10 @@ class eri_trans_vvoo(RegisteredIntermediate):
         a, b, i, j = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (a, p))
-        r2 = RotationTensor('U', (b, q))
-        r3 = RotationTensor('U', (i, r))
-        r4 = RotationTensor('U', (j, s))
+        r1 = NonSymmetricTensor('U', (a, p))
+        r2 = NonSymmetricTensor('U', (b, q))
+        r3 = NonSymmetricTensor('U', (i, r))
+        r4 = NonSymmetricTensor('U', (j, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (a, b, i, j), (p, q, r, s))
 
@@ -1607,10 +1608,10 @@ class eri_trans_vvvo(RegisteredIntermediate):
         a, b, c, i = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (a, p))
-        r2 = RotationTensor('U', (b, q))
-        r3 = RotationTensor('U', (c, r))
-        r4 = RotationTensor('U', (i, s))
+        r1 = NonSymmetricTensor('U', (a, p))
+        r2 = NonSymmetricTensor('U', (b, q))
+        r3 = NonSymmetricTensor('U', (c, r))
+        r4 = NonSymmetricTensor('U', (i, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (a, b, c, i), (p, q, r, s))
 
@@ -1628,10 +1629,10 @@ class eri_trans_vvov(RegisteredIntermediate):
         a, b, i, c = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (a, p))
-        r2 = RotationTensor('U', (b, q))
-        r3 = RotationTensor('U', (i, r))
-        r4 = RotationTensor('U', (c, s))
+        r1 = NonSymmetricTensor('U', (a, p))
+        r2 = NonSymmetricTensor('U', (b, q))
+        r3 = NonSymmetricTensor('U', (i, r))
+        r4 = NonSymmetricTensor('U', (c, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (a, b, i, c), (p, q, r, s))
 
@@ -1649,10 +1650,10 @@ class eri_trans_vovv(RegisteredIntermediate):
         a, i, b, c = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (a, p))
-        r2 = RotationTensor('U', (i, q))
-        r3 = RotationTensor('U', (b, r))
-        r4 = RotationTensor('U', (c, s))
+        r1 = NonSymmetricTensor('U', (a, p))
+        r2 = NonSymmetricTensor('U', (i, q))
+        r3 = NonSymmetricTensor('U', (b, r))
+        r4 = NonSymmetricTensor('U', (c, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (a, i, b, c), (p, q, r, s))
 
@@ -1671,10 +1672,10 @@ class eri_trans_ovvv(RegisteredIntermediate):
         i, a, b, c = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (i, p))
-        r2 = RotationTensor('U', (a, q))
-        r3 = RotationTensor('U', (b, r))
-        r4 = RotationTensor('U', (c, s))
+        r1 = NonSymmetricTensor('U', (i, p))
+        r2 = NonSymmetricTensor('U', (a, q))
+        r3 = NonSymmetricTensor('U', (b, r))
+        r4 = NonSymmetricTensor('U', (c, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (i, a, b, c), (p, q, r, s))
 
@@ -1692,10 +1693,10 @@ class eri_trans_vvvv(RegisteredIntermediate):
         a, b, c, d = get_symbols(self.default_idx)
         p, q, r, s = get_symbols('pqrs')
         v = AntiSymmetricTensor('V', (p, q), (r, s))
-        r1 = RotationTensor('U', (a, p))
-        r2 = RotationTensor('U', (b, q))
-        r3 = RotationTensor('U', (c, r))
-        r4 = RotationTensor('U', (d, s))
+        r1 = NonSymmetricTensor('U', (a, p))
+        r2 = NonSymmetricTensor('U', (b, q))
+        r3 = NonSymmetricTensor('U', (c, r))
+        r4 = NonSymmetricTensor('U', (d, s))
         exp_itmd = v * r1 * r2 * r3 * r4
         return base_expr(exp_itmd, (a, b, c, d), (p, q, r, s))
 

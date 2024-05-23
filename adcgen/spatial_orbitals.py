@@ -2,6 +2,7 @@ from .expr_container import Expr
 from .misc import Inputerror
 from .indices import get_symbols, order_substitutions, sort_idx_canonical
 from .simplify import simplify
+from .logger import log
 
 from itertools import product
 

@@ -3,6 +3,7 @@ from .indices import (get_symbols, order_substitutions, Index,
 from .misc import Inputerror
 from .sympy_objects import KroneckerDelta
 from . import expr_container as e
+from .logger import log
 
 from sympy import Add, Pow, S, sqrt, Rational
 from collections import Counter, defaultdict
@@ -392,8 +393,8 @@ def remove_tensor(expr: e.Expr, t_name: str):
     def remove(term: e.Term, tensor: e.Obj, target_indices: dict) -> e.Expr:
         # - get the tensor indices
         indices = list(tensor.idx)
-        # print(f"\nRemoving {tensor} with indices {indices}.")
-        # print(f"remaining term: {term}")
+        # log(f"\nRemoving {tensor} with indices {indices}.")
+        # log(f"remaining term: {term}")
 
         # - split the indices that are in the remaining term according
         #   to their space
@@ -427,7 +428,7 @@ def remove_tensor(expr: e.Expr, t_name: str):
             used_indices[ov].add(s.name)
 
         if tensor_target_indices:
-            # print("Found target indices on tensor to remove:",
+            # log("Found target indices on tensor to remove:",
             #       tensor_target_indices)
             for space, idx_list in tensor_target_indices.items():
                 if space not in used_indices:
@@ -446,8 +447,8 @@ def remove_tensor(expr: e.Expr, t_name: str):
                 for s, new_s in sub.items():
                     term *= KroneckerDelta(s, new_s)
                 indices = [sub.get(s, s) for s in indices]
-            # print(f"modified tensor indices to: {indices}")
-            # print(f"Term now reads {term}")
+            # log(f"modified tensor indices to: {indices}")
+            # log(f"Term now reads {term}")
 
         # - check for repeating indices:
         #   introduce a delta in the term for each repeating index
@@ -460,7 +461,7 @@ def remove_tensor(expr: e.Expr, t_name: str):
                     repeating_indices[ov] = []
                 repeating_indices[ov].extend(s for _ in range(n-1))
         if repeating_indices:
-            # print(f"Found repeating indices {repeating_indices}")
+            # log(f"Found repeating indices {repeating_indices}")
             #   - get the list indices of all tensor indices
             indices_i: dict[Index, list[int]] = {}
             for i, s in enumerate(indices):
@@ -484,15 +485,15 @@ def remove_tensor(expr: e.Expr, t_name: str):
                     indices[indices_i[s].pop(1)] = new_s
             # no repeating indices left
             assert max(Counter(indices).values()) == 1
-            # print(f"Replaced repeating indices by new indices: {indices}")
-            # print(f"The term now reads: {term}")
+            # log(f"Replaced repeating indices by new indices: {indices}")
+            # log(f"The term now reads: {term}")
         # - minimize the tensor indices by permuting contracted indices.
         #   Ensure indices occur in ascending order: kijab -> ijkab.
         #   target indices are excluded from this procedure:
         #   with target indices i, a: kijab -> jikab
-        # print(f"Minimized {indices} to ", end='', flush=True)
+        # log(f"Minimized {indices} to ", end='', flush=True)
         indices, perms = minimize_tensor_indices(indices, target_indices)
-        # print(indices)
+        # log(indices)
         # - apply the index permuations for minimizig the indices
         #   also to the term
         term: e.Expr = term.permute(*perms)
@@ -522,10 +523,10 @@ def remove_tensor(expr: e.Expr, t_name: str):
             ).terms[0]
         else:
             raise TypeError(f"Unknown tensor type {type(tensor.sympy)}")
-        # print(f"The tensor now reads: {tensor}")
+        # log(f"The tensor now reads: {tensor}")
         # if we got a -1 -> move to the term
         term *= tensor.prefactor
-        # print(f"Term now reads: {term}")
+        # log(f"Term now reads: {term}")
         # PREFACTOR:
         # - For a contraction d^ij_ab we obtain an additional prefactor of 1/4
         #   in the term, for d^ij_ka it is 1/2, or 1/4 for d^ij_kl
@@ -571,7 +572,7 @@ def remove_tensor(expr: e.Expr, t_name: str):
                 raise ValueError("ADC amplitude vectors should have "
                                  "no bra ket symmetry.")
             term *= 1 / sqrt(len(tensor_sym) + 1)
-        # print(f"Before symmetrization the terms reads {term}")
+        # log(f"Before symmetrization the terms reads {term}")
         # - add the tensor indices to the target indices of the term
         #   but only if it is not possible to determine them with the einstein
         #   sum convention -> only if target indices have been set manually
@@ -585,7 +586,7 @@ def remove_tensor(expr: e.Expr, t_name: str):
         return simplify(symmetrized_term)
 
     def process_term(term: e.Term, t_name):
-        # print(f"\nProcessing term {term}")
+        # log(f"\nProcessing term {term}")
         # collect all occurences of the desired tensor
         tensors = []
         remaining_term = e.Expr(1, **term.assumptions)
@@ -622,7 +623,7 @@ def remove_tensor(expr: e.Expr, t_name: str):
         # determine the space/block of the removed tensor
         # used as key in the returned dict
         t_block = [tensor.space]
-        # print(t_block, remaining_term)
+        # log(t_block, remaining_term)
         if len(tensors) == 1:  # only a single occurence no need to recurse
             return {tuple(t_block): remaining_term}
         else:  # more than one occurence of the tensor

@@ -4,6 +4,7 @@ from .misc import Inputerror, cached_property, cached_member
 from .sympy_objects import (
     NonSymmetricTensor, AntiSymmetricTensor, KroneckerDelta, SymmetricTensor
 )
+from .logger import log
 from sympy import latex, Add, Mul, Pow, sympify, S, Basic, nsimplify
 from sympy.physics.secondquant import NO, F, Fd
 import warnings

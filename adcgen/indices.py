@@ -1,6 +1,6 @@
 from sympy import S, Dummy
 from .misc import Inputerror, Singleton
-
+from .logger import log
 
 # base names for all used indices
 idx_base = {'occ': 'ijklmno', 'virt': 'abcdefgh', 'general': 'pqrstuvw'}

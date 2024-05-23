@@ -122,3 +122,8 @@ class TestGroundState():
                 for perms, factor in perm_sym:
                     re_expanded_dm += sub_expr.copy().permute(*perms) * factor
             assert simplify(re_expanded_dm - block_expr).sympy is S.Zero
+
+    @pytest.mark.parametrize('particles', [1, 2])
+    def test_density_matrix(self, order: int, particles: int, cls_instances, 
+                            reference_data):
+        

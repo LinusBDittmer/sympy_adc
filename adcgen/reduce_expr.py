@@ -1,6 +1,7 @@
 from . import expr_container as e
 from .eri_orbenergy import EriOrbenergy
 from .misc import Inputerror
+from .logger import log
 from collections import defaultdict
 from sympy import S
 import time
@@ -24,22 +25,22 @@ def reduce_expr(expr):
     if expr.sympy.is_number:
         return expr
 
-    print('\n', '#'*80, '\n', ' '*25, "REDUCING EXPRESSION\n", '#'*80, '\n',
+    log('\n', '#'*80, '\n', ' '*25, "REDUCING EXPRESSION\n", '#'*80, '\n',
           sep='')
 
     # 1) Insert the definitions of all defined intermediates in the expr
     #    and reduce the number of terms by factoring the ERI in each term.
     start = time.perf_counter()
-    print("Expanding intermediates... ")
+    log("Expanding intermediates... ")
     expanded_expr: list[e.Expr] = []
     for term_i, term in enumerate(expr.terms):
-        print('#'*80)
-        print(f"Expanding term {term_i+1} of {len(expr)}: {term}... ", end='',
+        log('#'*80)
+        log(f"Expanding term {term_i+1} of {len(expr)}: {term}... ", end='',
               flush=True)
         term = term.expand_intermediates().expand()
-        print(f"into {len(term)} terms.\nCollecting terms.... ")
+        log(f"into {len(term)} terms.\nCollecting terms.... ")
         term = factor_eri_parts(term)
-        print('-'*80)
+        log('-'*80)
         for j, equal_eri in enumerate(term):
             # minimize the contracted indices
             # each term in eri should hold exactly the same indices
@@ -51,9 +52,9 @@ def reduce_expr(expr):
                 raise ValueError(f"Invalid substitutions {sub} for "
                                  f"{equal_eri}")
             term[j] = sub_equal_eri
-            print(f"\n{j+1}: {EriOrbenergy(sub_equal_eri.terms[0]).eri}")
-        print('-'*80)
-        print(f"Found {len(term)} different ERI Structures")
+            log(f"\n{j+1}: {EriOrbenergy(sub_equal_eri.terms[0]).eri}")
+        log('-'*80)
+        log(f"Found {len(term)} different ERI Structures")
         expanded_expr.extend(term)
     del expr
     # 2) Now try to factor the whole expression
@@ -61,14 +62,14 @@ def reduce_expr(expr):
     #    in the list (they all have same ERI)
     #    -> build new term list and try to factor ERI + Denominator
     #    -> simplify the orbital energy fraction in the resulting terms
-    print("\nExpanding and ERI factoring took "
+    log("\nExpanding and ERI factoring took "
           f"{time.perf_counter() - start:.2f}s\n")
-    print('#'*80, "\n", '#'*80, sep='')
+    log('#'*80, "\n", '#'*80, sep='')
     start = time.perf_counter()
-    print("\nSumming up all terms:")
-    print('#'*80)
+    log("\nSumming up all terms:")
+    log('#'*80)
     unique_terms = [unique_expr.terms[0] for unique_expr in expanded_expr]
-    print("Factoring ERI...")
+    log("Factoring ERI...")
     unique_compatible_eri = find_compatible_eri_parts(unique_terms)
     n = 1
     n_eri_denom = 0
@@ -77,15 +78,15 @@ def reduce_expr(expr):
     for i, compatible_eri_subs in unique_compatible_eri.items():
         temp = expanded_expr[i]
         eri = EriOrbenergy(expanded_expr[i].terms[0]).eri
-        print("\n", '#'*80, sep='')
-        print(f"ERI {n} of {len(unique_compatible_eri)}: {eri}")
+        log("\n", '#'*80, sep='')
+        log(f"ERI {n} of {len(unique_compatible_eri)}: {eri}")
         n += 1
         for other_i, sub in compatible_eri_subs.items():
             temp += expanded_expr[other_i].subs(sub)
 
         # collected all terms with equal ERI -> factor denominators
         eri_sym = eri.symmetry(only_contracted=True)
-        print("\nFactoring Denominators...")
+        log("\nFactoring Denominators...")
         for j, term in enumerate(factor_denom(temp, eri_sym=eri_sym)):
             term = term.factor()
             if len(term) != 1:
@@ -95,41 +96,41 @@ def reduce_expr(expr):
                                    f"{term}")
             # symmetrize the numerator and cancel the orbital energy fraction
             term = EriOrbenergy(term)
-            print('-'*80)
-            print(f"ERI/Denom {j}: {term}\n")
-            print("Permuting numerator... ", flush=True, end='')
+            log('-'*80)
+            log(f"ERI/Denom {j}: {term}\n")
+            log("Permuting numerator... ", flush=True, end='')
             term = term.permute_num(eri_sym=eri_sym)
-            print(f"Done:\n{term}")
-            print("\nCancel orbital energy fraction...")
+            log(f"Done:\n{term}")
+            log("\nCancel orbital energy fraction...")
             term = term.cancel_orb_energy_frac()
-            print("Done.")
+            log("Done.")
 
             if not all(EriOrbenergy(t).num.sympy.is_number
                        for t in term.terms):
-                print("\nNUMERATOR NOT CANCELLED COMPLETELY:")
+                log("\nNUMERATOR NOT CANCELLED COMPLETELY:")
                 for t in term.terms:
-                    print(EriOrbenergy(t))
+                    log(EriOrbenergy(t))
 
             factored += term
         n_eri_denom += j + 1
     del expanded_expr  # not up to date anymore
-    print('#'*80)
-    print("\nFactorizing and cancelling the orbital energy fractions in "
+    log('#'*80)
+    log("\nFactorizing and cancelling the orbital energy fractions in "
           f"{n_eri_denom} terms took {time.perf_counter() - start:.2f}s.\n"
           f"Expression consists now of {len(factored)} terms.")
-    print('#'*80)
+    log('#'*80)
 
     # 3) Since we modified some denominators by canceling the orbital energy
     #    fractions, try to factor eri and denominator again
-    print("\nFactoring again...", flush=True, end='')
+    log("\nFactoring again...", flush=True, end='')
     result = 0
     for term in chain.from_iterable(factor_denom(sub_expr) for sub_expr in
                                     factor_eri_parts(factored)):
         # factor the resulting term again, because we can have something like
         # 2/(4*a + 4*b) * X - 1/(2 * (a + b)) * X
         result += term.factor()
-    print(f"Done. {len(result)} terms remaining.\n")
-    print('#'*80)
+    log(f"Done. {len(result)} terms remaining.\n")
+    log('#'*80)
     return result
 
 

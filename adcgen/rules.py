@@ -1,5 +1,5 @@
 from . import expr_container as e
-
+from .logger import log
 
 class Rules:
     """Rule to apply to expressions. Currently it is only possible to

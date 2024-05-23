@@ -2,7 +2,8 @@ from .misc import (cached_property, process_arguments, cached_member,
                    validate_input)
 from .indices import Indices
 from .rules import Rules
-from .sympy_objects import AntiSymmetricTensor, RotationTensor
+from .sympy_objects import AntiSymmetricTensor, NonSymmetricTensor
+from .logger import log
 
 from sympy import Rational, factorial, Mul, latex
 from sympy.physics.secondquant import Fd, F
@@ -41,21 +42,25 @@ class Operators:
 
     @process_arguments
     @cached_member
-    def operator(self, opstring):
+    def operator(self, opstring, idx_list=None):
         """Constructs an arbitrary operator. The amount of creation (c) and
            annihilation (a) operators must be given by opstring. For example
            'ccaa' will return a two particle operator.
            """
         validate_input(opstring=opstring)
         n_create = opstring.count('c')
-        idx = self._indices.get_generic_indices(n_g=len(opstring))["general"]
-        create = idx[:n_create]
-        annihilate = idx[n_create:]
+        if idx_list is None:
+            idx = self._indices.get_generic_indices(n_g=len(opstring))["general"]
+            create = idx[:n_create]
+            annihilate = idx[n_create:]
+        else:
+            create, annihilate = idx_list
 
         pref = Rational(1, factorial(len(create)) * factorial(len(annihilate)))
         d = AntiSymmetricTensor('d', create, annihilate)
         op = Mul(*[Fd(s) for s in create]) * \
             Mul(*[F(s) for s in reversed(annihilate)])
+        log(f"Operator built: {pref * d * op}")
         return pref * d * op, None
 
     @staticmethod
@@ -65,7 +70,7 @@ class Operators:
         f = AntiSymmetricTensor('f', (p,), (q,))
         pq = Fd(p) * F(q)
         h0 = f * pq
-        print("H0 = ", latex(h0))
+        log("H0 = ", latex(h0))
         return h0, None
 
     @staticmethod
@@ -79,20 +84,20 @@ class Operators:
         v2 = AntiSymmetricTensor('V', (p, q), (r, s))
         pqsr = Fd(p) * Fd(q) * F(s) * F(r)
         h1 = -v1 * pq + Rational(1, 4) * v2 * pqsr
-        print("H1 = ", latex(h1))
+        log("H1 = ", latex(h1))
         return h1, None
 
     @staticmethod
     def ordmp_h0():
         idx_cls = Indices()
         p, q, r, s = idx_cls.get_indices('pqrs')['general']
-        u_pr = RotationTensor('U', (p, r))
-        u_qs = RotationTensor('U', (q, s))
+        u_pr = NonSymmetricTensor('U', (p, r))
+        u_qs = NonSymmetricTensor('U', (q, s))
         f = AntiSymmetricTensor('f', (r,), (s,))
         pq = Fd(p) * F(q)
         h0 = u_pr * f * u_qs * pq
         rules = Rules(forbidden_tensor_blocks = {'U': ('ov', 'vo')})
-        print("H0 = ", latex(h0))
+        log("H0 = ", latex(h0))
         return h0, rules
 
     @staticmethod
@@ -106,8 +111,8 @@ class Operators:
         v1 = AntiSymmetricTensor('V', (p, occ), (q, occ))
         v2 = AntiSymmetricTensor('V', (p, q), (r, s))
         
-        u_pr = RotationTensor(None, (p, r))
-        u_qs = RotationTensor(None, (q, s))
+        u_pr = NonSymmetricTensor('U', (p, r))
+        u_qs = NonSymmetricTensor('U', (q, s))
 
         pq = Fd(p) * F(q)
         pqsr = Fd(p) * Fd(q) * F(s) * F(r)
@@ -115,7 +120,7 @@ class Operators:
         h1 = (-u_pr * hr * u_qs + h - v1) * pq + Rational(1, 4) * v2 * pqsr
         
         rules = Rules(forbidden_tensor_blocks = {'U': ('ov', 'vo')})
-        print("H1 = ", latex(h1))
+        log("H1 = ", latex(h1))
         return h1, rules
 
     @staticmethod
@@ -132,7 +137,7 @@ class Operators:
         op_pqsr = Fd(p) * Fd(q) * F(s) * F(r)
 
         h0 = f * op_pq - piqi * op_pq + Rational(1, 4) * pqrs * op_pqsr
-        print("H0 = ", latex(h0))
+        log("H0 = ", latex(h0))
         # construct the rules for forbidden blocks in H0
         # we are not in a real orbital basis!! -> More canonical blocks
         rules = Rules(forbidden_tensor_blocks={
@@ -155,7 +160,7 @@ class Operators:
         op_pqsr = Fd(p) * Fd(q) * F(s) * F(r)
 
         h1 = f * op_pq - piqi * op_pq + Rational(1, 4) * pqrs * op_pqsr
-        print("H1 = ", latex(h1))
+        log("H1 = ", latex(h1))
         # construct the rules for forbidden blocks in H1
         rules = Rules(forbidden_tensor_blocks={
             'f': ['oo', 'vv'],

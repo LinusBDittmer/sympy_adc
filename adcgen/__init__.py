@@ -16,6 +16,7 @@ from .spatial_orbitals import transform_to_spatial_orbitals
 from .generate_code import generate_code
 from .sympy_objects import (AntiSymmetricTensor, SymmetricTensor,
                             NonSymmetricTensor, KroneckerDelta)
+from .logger import log
 
 __all__ = ["AntiSymmetricTensor", "SymmetricTensor", "NonSymmetricTensor",
            "KroneckerDelta",
@@ -29,7 +30,7 @@ __all__ = ["AntiSymmetricTensor", "SymmetricTensor", "NonSymmetricTensor",
            "Intermediates", "reduce_expr", "factor_intermediates",
            "sort",
            "transform_to_spatial_orbitals",
-           "generate_code"]
+           "generate_code", "log"]
 
 __authors__ = ["Jonas Leitner", "Linus Dittmer"]
 __version__ = "0.0.4"

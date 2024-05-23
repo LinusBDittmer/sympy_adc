@@ -11,7 +11,7 @@ from .simplify import simplify
 from .func import gen_term_orders, wicks, evaluate_deltas
 from .groundstate import GroundState
 from .expr_container import Expr
-
+from .logger import log
 
 class IntermediateStates:
     def __init__(self, mp, variant="pp"):
@@ -194,7 +194,7 @@ class IntermediateStates:
                 projection = evaluate_deltas(projection)
                 res -= (norm * projection).expand()
 
-        print(f"Build precursor {space}_({indices})^({order}) {braket}:"
+        log(f"Build precursor {space}_({indices})^({order}) {braket}:"
               f" {latex(res)}")
         return res
 
@@ -245,7 +245,7 @@ class IntermediateStates:
         # indices before returning -> should lower the overall size of the
         # final expression
         res = simplify(Expr(res))
-        print(f"Build overlap {block} S_{indices}^({order}) = {res}")
+        log(f"Build overlap {block} S_{indices}^({order}) = {res}")
         return res.sympy
 
     @process_arguments
@@ -301,7 +301,7 @@ class IntermediateStates:
                 # in squared or higher terms S*S*... delta evaluation might
                 # be necessary
                 res += evaluate_deltas(i1.expand())
-        print(f"Build {block} S_root_{indices}^({order}) = {latex(res)}")
+        log(f"Build {block} S_root_{indices}^({order}) = {latex(res)}")
         return res
 
     @process_arguments
@@ -345,7 +345,7 @@ class IntermediateStates:
                   self.precursor(order=term[1], space=space, braket=braket,
                                  indices=idx_pre))
             res += evaluate_deltas(i1.expand())
-        print(f"Build {space} ISR_({indices}^({order}) "
+        log(f"Build {space} ISR_({indices}^({order}) "
               f"{braket} = {latex(res)}")
         return res
 
@@ -384,7 +384,7 @@ class IntermediateStates:
                 i1 = wicks(i1, simplify_kronecker_deltas=True)
                 overlap += i1
             res += (norm * overlap).expand()
-        print(f"Build ISR overlap {block} S_{indices}^({order}) = ",
+        log(f"Build ISR overlap {block} S_{indices}^({order}) = ",
               latex(res))
         return res
 

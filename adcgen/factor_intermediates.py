@@ -4,6 +4,7 @@ from .eri_orbenergy import EriOrbenergy
 from .indices import order_substitutions, get_symbols, minimize_tensor_indices
 from .sympy_objects import AntiSymmetricTensor
 from .symmetry import LazyTermMap
+from .logger import log
 from sympy import S, Mul, Rational
 from collections import Counter
 from itertools import product, compress
@@ -37,36 +38,36 @@ def factor_intermediates(expr, types_or_names: str | list[str] = None,
     else:
         itmd_to_factor: dict = itmd.available
 
-    print('\n\n', '#'*80, '\n', " "*25, "INTERMEDIATE FACTORIZATION\n", '#'*80,
+    log('\n\n', '#'*80, '\n', " "*25, "INTERMEDIATE FACTORIZATION\n", '#'*80,
           "\n", sep='')
-    print(f"Trying to factor intermediates in expr of length {len(expr)}\n")
+    log(f"Trying to factor intermediates in expr of length {len(expr)}\n")
     for i, term in enumerate(expr.terms):
-        print(f"{i+1}:  {EriOrbenergy(term)}\n")
-    print('#'*80)
+        log(f"{i+1}:  {EriOrbenergy(term)}\n")
+    log('#'*80)
     # try to factor all requested intermediates
     factored = []
     for name, itmd_cls in itmd_to_factor.items():
-        print("\n", ' '*25, f"Factoring {name}\n\n", '#'*80, sep='',
+        log("\n", ' '*25, f"Factoring {name}\n\n", '#'*80, sep='',
               flush=True)
         start = perf_counter()
         expr = itmd_cls.factor_itmd(expr, factored, max_order)
         factored.append(name)
-        print('\n', '-'*80, sep='')
-        print(f"Done in {perf_counter()-start:.2f}s. {len(expr)} terms remain")
-        print('-'*80, '\n')
+        log('\n', '-'*80, sep='')
+        log(f"Done in {perf_counter()-start:.2f}s. {len(expr)} terms remain")
+        log('-'*80, '\n')
         for i, term in enumerate(expr.terms):
-            print(f"{i+1: >{len(str(len(expr)+1))}}:  {EriOrbenergy(term)}\n")
-        print('#'*80)
-    print("\n\n", '#'*80, "\n", " "*25,
+            log(f"{i+1: >{len(str(len(expr)+1))}}:  {EriOrbenergy(term)}\n")
+        log('#'*80)
+    log("\n\n", '#'*80, "\n", " "*25,
           "INTERMEDIATE FACTORIZATION FINISHED\n", '#'*80, sep='', flush=True)
     # make the result pretty by minimizing contracted indices:
     # some contracted indices might be hidden inside some intermediates.
     # -> ensure that the remaining ones are the lowest available
     expr = expr.substitute_contracted()
-    print(f"\n{len(expr)} terms in the final result:")
+    log(f"\n{len(expr)} terms in the final result:")
     width = len(str(len(expr)+1))
     for i, term in enumerate(expr.terms):
-        print(f"{i+1: >{width}}: {EriOrbenergy(term)}")
+        log(f"{i+1: >{width}}: {EriOrbenergy(term)}")
     return expr
 
 
@@ -267,8 +268,8 @@ def _factor_long_intermediate(expr: e.Expr, itmd: list[EriOrbenergy],
                     remainder=remainder, prefactor=prefactor,
                     unit_factorization_pref=unit_factorization_pref
                 )
-    print("\nMATCHED INTERMEDIATE TERMS:")
-    print(intermediate_variants)
+    log("\nMATCHED INTERMEDIATE TERMS:")
+    log(intermediate_variants)
 
     result: e.Expr = e.Expr(0, **expr.assumptions)
     factored_terms = set()  # keep track which terms have already been factored
@@ -442,13 +443,13 @@ def _factor_short_intermediate(expr: e.Expr, itmd: EriOrbenergy,
                                            itmd_cls).sympy,
                 **remainder.assumptions
             )
-        print(term)
+        log(term)
         # - build the new term including the itmd
         factored_term = _build_factored_term(remainder, pref, itmd_cls,
                                              itmd_indices)
 
         factored_sucessfully = True
-        print(f"\nFactoring {itmd_cls.name} in:\n{term}\n"
+        log(f"\nFactoring {itmd_cls.name} in:\n{term}\n"
               f"result:\n{EriOrbenergy(factored_term)}")
         factored += factored_term
     # if we factored the itmd sucessfully it might be necessary to add
@@ -484,13 +485,13 @@ def _factor_complete(result: e.Expr, terms: list[e.Term], itmd_cls,
                 # Found a complete intermediate with matching prefactors!!
                 pref, term_list = complete_variant
 
-                print(f"\nFactoring {itmd_cls.name} in terms:")
+                log(f"\nFactoring {itmd_cls.name} in terms:")
                 for term_i in term_list:
-                    print(EriOrbenergy(terms[term_i]))
+                    log(EriOrbenergy(terms[term_i]))
 
                 new_term = _build_factored_term(rem, pref, itmd_cls,
                                                 itmd_indices)
-                print(f"result:\n{EriOrbenergy(new_term)}", flush=True)
+                log(f"result:\n{EriOrbenergy(new_term)}", flush=True)
                 result += new_term
 
                 # remove the used terms from the pool of available terms
@@ -540,22 +541,22 @@ def _factor_mixed_prefactors(result: e.Expr, terms: list[e.Term], itmd_cls,
                 # for all terms that don't have the most common prefactor:
                 # determine the 'extension' that needs to be added to the
                 # result to factor the intermediate using the most common pref
-                print("\nAdding terms:")
+                log("\nAdding terms:")
                 for term_i, p in terms_to_add.items():
                     desired_pref = most_common_pref * unit_factors[term_i]
                     term = EriOrbenergy(terms[term_i]).canonicalize_sign()
                     extension_pref = term.pref - desired_pref
                     term = extension_pref * term.num * term.eri / term.denom
-                    print(EriOrbenergy(term))
+                    log(EriOrbenergy(term))
                     result += term
 
-                print(f"\nFactoring {itmd_cls.name} with mixed prefactors in:")
+                log(f"\nFactoring {itmd_cls.name} with mixed prefactors in:")
                 for term_i in term_list:
-                    print(EriOrbenergy(terms[term_i]))
+                    log(EriOrbenergy(terms[term_i]))
 
                 new_term = _build_factored_term(rem, most_common_pref,
                                                 itmd_cls, itmd_indices)
-                print(f"result:\n{EriOrbenergy(new_term)}", flush=True)
+                log(f"result:\n{EriOrbenergy(new_term)}", flush=True)
                 result += new_term
 
                 # remove the used terms from the pool of available terms

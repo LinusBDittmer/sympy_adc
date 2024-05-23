@@ -1,7 +1,7 @@
 from . import expr_container as e
 from .misc import Inputerror
 from .indices import get_symbols, sort_idx_canonical
-
+from .logger import log
 
 def by_delta_types(expr: e.Expr) -> dict[tuple[str], e.Expr]:
     """Sort the terms in an expression according to the space of the deltas

@@ -6,7 +6,7 @@ from .indices import Index, get_symbols, split_idx_string, Indices
 from .sympy_objects import (
     KroneckerDelta, NonSymmetricTensor, AntiSymmetricTensor, SymmetricTensor
 )
-
+from .logger import log
 from sympy.physics.secondquant import (
     F, Fd, FermionicOperator, NO
 )
@@ -146,8 +146,8 @@ def eri_unitary_deriv2(eri_idx: [Index], deriv_idx: [Index], notation: str = 'c'
     
     a0, b0, a1, b1 = aux_symbols
     
-    #print(f"ERI symbols: {eri0}, {eri1}, {eri2}, {eri3}")
-    #print(f"Aux symbols: {a0}, {b0}, {a1}, {b1}")
+    #log(f"ERI symbols: {eri0}, {eri1}, {eri2}, {eri3}")
+    #log(f"Aux symbols: {a0}, {b0}, {a1}, {b1}")
 
     v = SymmetricTensor('v', (a0, b0), (a1, b1))
 
@@ -535,6 +535,7 @@ def evaluate_deltas(expr, target_idx=None):
                 continue
             preferred, killable = idx
             # try to remove killable
+
             if killable not in target_idx:
                 expr = expr.subs(killable, preferred)
                 if len(deltas) > 1:
