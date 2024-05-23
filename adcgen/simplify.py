@@ -1,7 +1,9 @@
 from .indices import (get_symbols, order_substitutions, Index,
                       get_lowest_avail_indices, minimize_tensor_indices, Indices)
 from .misc import Inputerror
-from .sympy_objects import KroneckerDelta
+from .sympy_objects import (
+    KroneckerDelta, Amplitude, AntiSymmetricTensor, NonSymmetricTensor
+)
 from . import expr_container as e
 from .logger import log
 
@@ -9,25 +11,35 @@ from sympy import Add, Pow, S, sqrt, Rational
 from collections import Counter, defaultdict
 
 
-def filter_tensor(expr, t_strings, strict='low', ignore_amplitudes=True):
-    """Filter an expression and only return terms that contain certain tensors.
-       The names of the desired tensors need to be provided as list/tuple of
-       strings.
-       This filtering is implemented in 3 different ways, controlled by strict:
-        - 'high': return all terms that ONLY contain the desired tensors in the
-                  requested amount. E.g.: ['V', 'V'] returns only
+def filter_tensor(expr, t_strings: list[str], strict: str = 'low',
+                  ignore_amplitudes: bool = True) -> e.Expr:
+    """
+    Filter an expression keeping only terms that contain the desired tensors.
+
+    Parameters
+    ----------
+    t_strings : list[str]
+        List containing the desired tensor names.
+    struct : str, optional
+        3 possible options:
+        - 'high': return all terms that ONLY contain the desired tensors the
+                  requested amount of times, e.g., ['V', 'V'] returns only
                   terms that contain not other tensors than 'V*V'
                   Setting ignore_amplitudes, ignores all not requested
-                  amplitudes for this.
-        - 'medium': return all terms that contain the desired tensors in the
+                  t and ADC ampltiudes amplitudes.
+        - 'medium': return all terms that contain the desired tensors the
                     requested amount, but other tensors may additionally be
                     present in the term. E.g. ['V', 'V'] also returns terms
                     that contain 'V*V*x', where x may be any amount of
                     arbitrary other tensors.
-        - 'low': return all terms that contain all of the requested tensors.
-                 E.g. ['V', 'V'] return all terms that contain 'V' at least
+        - 'low': return all terms that contain all of the requested tensors,
+                 e.g., ['V', 'V'] returns all terms that contain 'V' at least
                  once.
-       """
+
+    Returns
+    Expr
+        The filtered expression.
+    """
 
     def check_term(term):
         available = [o.name for o in term.tensors for _ in range(o.exponent)]
@@ -71,7 +83,26 @@ def filter_tensor(expr, t_strings, strict='low', ignore_amplitudes=True):
     return e.Expr(filtered, **expr.assumptions)
 
 
-def find_compatible_terms(terms: list[e.Term]):
+def find_compatible_terms(terms: list[e.Term]) -> dict:
+    """
+    Determines the substitutions of contracted needed to map terms onto each
+    other.
+
+    Parameters
+    ----------
+    terms: list[Term]
+        The list of terms to compare and map onto each other.
+
+    Returns
+    -------
+    dict
+        Nested dictionary containing the indices of terms and the substitution
+        dict to map the terms onto each other, e.g., the substitutions to
+        map term j onto term i are stored as
+        {i: {j: substitutions}}.
+        If it was not possible to find a match for term_i, the inner dictionary
+        will be empty {i: {}}.
+    """
     from itertools import product, combinations
 
     def compare_terms(pattern: dict, other_pattern: dict, target: tuple,
@@ -247,7 +278,26 @@ def find_compatible_terms(terms: list[e.Term]):
 
 
 def simplify(expr: e.Expr) -> e.Expr:
-    """Simplify an expression by renaming indices. The new index names are
+    """
+    Simplify an expression by permuting contracted indices. Thereby, terms
+    are mapped onto each other reducing the number of terms.
+    Currently this does not work for denominators of the form (a + b + ...).
+    However, this restriction can often be bypassed by using symbolic,
+    denominators, i.e., using a tensor of the correct symmetry to represent the
+    denominator. Alternatively, the functions found in 'reduce_expr' are
+    capable to handle orbital energy denominators.
+
+    Parameters
+    ----------
+    expr : Expr
+        The expression to simplify
+
+    Returns
+    -------
+    Expr
+        The simplified expression.
+
+    Simplify an expression by renaming indices. The new index names are
        determined by establishing a mapping between the indices in different
        terms. If all indices in two terms share the same pattern (essentially
        occur on the same tensors), but have different names. The function will
@@ -279,9 +329,26 @@ def simplify(expr: e.Expr) -> e.Expr:
 
 def simplify_unitary(expr: e.Expr, t_name: str,
         evaluate_deltas: bool = False, block_diagonal: bool = False) -> e.Expr:
-    """Simplifies an expression that contains unitary tensors by applying
-       U_pq * U_pr * Remainder = delta_qr * Remainder,
-       where the Remainder does not contain the index p."""
+    """
+    Simplifies an expression that contains unitary tensors by exploiting
+    U_pq * U_pr * Remainder = delta_qr * Remainder,
+    where the Remainder does not contain the index p.
+
+    Parameters
+    ----------
+    expr : Expr
+        The expression to simplify.
+    t_name : str
+        Name of the unitary tensor.
+    evaluate_deltas: bool, optional
+        If this is set, the generated KroneckerDeltas will be evaluated
+        before returning.
+
+    Returns
+    -------
+    Expr
+        The simplified expression.
+    """
     from . import func
     from itertools import combinations
 
@@ -384,11 +451,35 @@ def simplify_unitary(expr: e.Expr, t_name: str,
     return res
 
 
-def remove_tensor(expr: e.Expr, t_name: str):
-    """Removes the given tensor in each term of an expr by reverting the
-       contraction.
-       """
-    from .sympy_objects import AntiSymmetricTensor, NonSymmetricTensor
+def remove_tensor(expr: e.Expr, t_name: str) -> dict:
+    """
+    Removes a tensor from each term of an expression by undoing the contraction
+    of the remaining term with the tensor. The resulting expression is split
+    according to the blocks of the removed tensor. Note that only canonical
+    tensor blocks are considered, because the non-canonical blocks can be
+    generated from the canonical ones, e.g., removing a symmetric matrix d_{pq}
+    from an expression can only result in expressions for the 'oo', 'ov' and
+    'vv' blocks, since d_{ai} = d_{ia}.
+    The symmetry of the removed tensor is taken into account, such that the
+    original expression can be restored if all block expressions are
+    contracted with the corresponding tensor blocks again.
+    Note that for ADC-Amplitudes a special prefactor is used.
+
+    Parameters
+    ----------
+    expr : Expr
+        The expression where the tensor should be removed.
+    t_name : str
+        Name of the tensor that should be removed.
+
+    Returns
+    -------
+    dict
+        key: Tuple of removed tensor blocks
+        value: Part of the original expression that contained the corresponding
+               blocks. If contracted with the tensor blocks again, a part of
+               the original expression is recovered.
+    """
 
     def remove(term: e.Term, tensor: e.Obj, target_indices: dict) -> e.Expr:
         # - get the tensor indices
@@ -397,12 +488,12 @@ def remove_tensor(expr: e.Expr, t_name: str):
         # log(f"remaining term: {term}")
 
         # - split the indices that are in the remaining term according
-        #   to their space
+        #   to their space and spin to gather information about used indices
         used_indices = {}
         for s in set(s for s, _ in term._idx_counter):
-            if (ov := s.space) not in used_indices:
-                used_indices[ov] = set()
-            used_indices[ov].add(s.name)
+            if (idx_key := s.space_and_spin) not in used_indices:
+                used_indices[idx_key] = set()
+            used_indices[idx_key].add(s.name)
 
         # - check if the tensor is holding target indices.
         #   have to introduce a KroneckerDelta for each target index to avoid
@@ -411,35 +502,42 @@ def remove_tensor(expr: e.Expr, t_name: str):
         #   f_bc * Y^ac_ij -> delta_ik * delta_jl * delta_ad * f_bc * Y^dc_kl
 
         # get all target indices on the tensor, split according to their space
+        # and spin
         tensor_target_indices = {}
         for s in indices:
-            ov = s.space
-            if s.name in target_indices.get(ov, []):
-                if ov not in tensor_target_indices:
-                    tensor_target_indices[ov] = []
-                if s not in tensor_target_indices[ov]:
-                    tensor_target_indices[ov].append(s)
+            idx_key = s.space_and_spin
+            if s.name in target_indices.get(idx_key, []):
+                if idx_key not in tensor_target_indices:
+                    tensor_target_indices[idx_key] = []
+                if s not in tensor_target_indices[idx_key]:
+                    tensor_target_indices[idx_key].append(s)
 
         # - add the tensor indices to the term_indices to collect all
-        #   unavailable indices
+        #   not available indices
         for s in indices:
-            if (ov := s.space) not in used_indices:
-                used_indices[ov] = set()
-            used_indices[ov].add(s.name)
+            if (idx_key := s.space_and_spin) not in used_indices:
+                used_indices[idx_key] = set()
+            used_indices[idx_key].add(s.name)
 
         if tensor_target_indices:
             # log("Found target indices on tensor to remove:",
             #       tensor_target_indices)
-            for space, idx_list in tensor_target_indices.items():
-                if space not in used_indices:
-                    used_indices[space] = set()
+            for idx_key, idx_list in tensor_target_indices.items():
+                if idx_key not in used_indices:
+                    used_indices[idx_key] = set()
+                space, spin = idx_key
                 additional_indices = get_lowest_avail_indices(
-                    len(idx_list), used_indices[space], space
+                    len(idx_list), used_indices[idx_key], space
                 )
                 # add the new indices to the unavailable indices
-                used_indices[space].update(additional_indices)
+                used_indices[idx_key].update(additional_indices)
                 # transform them from string to Dummies
-                additional_indices = get_symbols(additional_indices)
+                if spin:
+                    spins = spin * len(idx_list)
+                else:
+                    spins = None
+                additional_indices = get_symbols(additional_indices, spins)
+
                 sub = {s: new_s for s, new_s in
                        zip(idx_list, additional_indices)}
                 # create a delta for each index and attach to the term
@@ -457,9 +555,9 @@ def remove_tensor(expr: e.Expr, t_name: str):
         repeating_indices = {}
         for s, n in Counter(indices).items():
             if n > 1:
-                if (ov := s.space) not in repeating_indices:
-                    repeating_indices[ov] = []
-                repeating_indices[ov].extend(s for _ in range(n-1))
+                if (idx_key := s.space_and_spin) not in repeating_indices:
+                    repeating_indices[idx_key] = []
+                repeating_indices[idx_key].extend(s for _ in range(n-1))
         if repeating_indices:
             # log(f"Found repeating indices {repeating_indices}")
             #   - get the list indices of all tensor indices
@@ -474,11 +572,16 @@ def remove_tensor(expr: e.Expr, t_name: str):
             #   indices can at most twice, once in upper and once in lower.
             #   On NonSymmetricTensors no such limit exists -> implement for
             #   an arbitrary amount of repetitions
-            for space, idx_list in repeating_indices.items():
+            for idx_key, idx_list in repeating_indices.items():
+                space, spin = idx_key
                 additional_indices = get_lowest_avail_indices(
-                    len(idx_list), used_indices.get(space, []), space
+                    len(idx_list), used_indices.get(idx_key, []), space
                 )
-                additional_indices = get_symbols(additional_indices)
+                if spin:
+                    spins = spin * len(idx_list)
+                else:
+                    spins = None
+                additional_indices = get_symbols(additional_indices, spins)
                 for s, new_s in zip(idx_list, additional_indices):
                     term *= KroneckerDelta(s, new_s)
                     # substitute the second occurence of s in tensor indices
@@ -502,24 +605,22 @@ def remove_tensor(expr: e.Expr, t_name: str):
         #   further minimization might be possible taking the tensor
         #   symmetry into account, because we did not touch target indices:
         #   jikab -> d^jik_ab = - d^ijk_ab
-        if isinstance(tensor.sympy, AntiSymmetricTensor):
-            bra_ket_sym = tensor.bra_ket_sym
-            if tensor.is_amplitude:  # indices = lower, upper
-                n_l = len(tensor.lower)
-                tensor = e.Expr(
-                    AntiSymmetricTensor(t_name, indices[n_l:],
-                                        indices[:n_l], bra_ket_sym)
-                ).terms[0]
-            else:  # indices = upper, lower
-                n_u = len(tensor.upper)
-                tensor = e.Expr(
-                    AntiSymmetricTensor(t_name, indices[:n_u],
-                                        indices[n_u:], bra_ket_sym)
-                ).terms[0]
-        elif isinstance(tensor.sympy, NonSymmetricTensor):
+        raw_tensor = tensor.sympy
+        if isinstance(raw_tensor, AntiSymmetricTensor):
+            bra_ket_sym = raw_tensor.bra_ket_sym
+            if isinstance(raw_tensor, Amplitude):  # indices = lower, upper
+                n_l = len(raw_tensor.lower)
+                upper, lower = indices[n_l:], indices[:n_l]
+            else:  # symtensor / antisymtensor, indices = upper, lower
+                n_u = len(raw_tensor.upper)
+                upper, lower = indices[:n_u], indices[n_u:]
+            tensor = e.Expr(raw_tensor.__class__(
+                raw_tensor.name, upper, lower, bra_ket_sym
+            )).terms[0]
+        elif isinstance(raw_tensor, NonSymmetricTensor):
             bra_ket_sym = None
             tensor = e.Expr(
-                NonSymmetricTensor(tensor.symbol.name, indices)
+                NonSymmetricTensor(raw_tensor.name, indices)
             ).terms[0]
         else:
             raise TypeError(f"Unknown tensor type {type(tensor.sympy)}")
@@ -592,17 +693,17 @@ def remove_tensor(expr: e.Expr, t_name: str):
         remaining_term = e.Expr(1, **term.assumptions)
         for obj in term.objects:
             if obj.name == t_name:
-                tensors.extend(obj for _ in range(obj.exponent))
+                tensors.append(obj)  # we take care of the exponent later!
             else:
                 remaining_term *= obj
         if not tensors:  # could not find the tensor
-            return {('none',): term}
+            return {("none",): term}
         # extract all the target indices and split according to their space
         target_indices = {}
         for s in term.target:
-            if (ov := s.space) not in target_indices:
-                target_indices[ov] = set()
-            target_indices[ov].add(s.name)
+            if (idx_key := s.space_and_spin) not in target_indices:
+                target_indices[idx_key] = set()
+            target_indices[idx_key].add(s.name)
         # remove the first occurence of the tensor
         # and add all the remaining occurences back to the term
         for remaining_t in tensors[1:]:
@@ -622,7 +723,11 @@ def remove_tensor(expr: e.Expr, t_name: str):
                                 target_indices)
         # determine the space/block of the removed tensor
         # used as key in the returned dict
-        t_block = [tensor.space]
+        spin = tensor.spin
+        if all(c == "n" for c in spin):
+            t_block = [tensor.space]
+        else:
+            t_block = [f"{tensor.space}_{spin}"]
         # log(t_block, remaining_term)
         if len(tensors) == 1:  # only a single occurence no need to recurse
             return {tuple(t_block): remaining_term}

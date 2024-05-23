@@ -2,11 +2,12 @@ from .indices import (get_lowest_avail_indices, get_symbols,
                       order_substitutions, Index, sort_idx_canonical)
 from .misc import Inputerror, cached_property, cached_member
 from .sympy_objects import (
-    NonSymmetricTensor, AntiSymmetricTensor, KroneckerDelta, SymmetricTensor
+    NonSymmetricTensor, AntiSymmetricTensor, KroneckerDelta, SymmetricTensor,
+    SymbolicTensor, Amplitude
 )
 from .logger import log
 from sympy import latex, Add, Mul, Pow, sympify, S, Basic, nsimplify
-from sympy.physics.secondquant import NO, F, Fd
+from sympy.physics.secondquant import NO, F, Fd, FermionicOperator
 import warnings
 
 class Container:
@@ -22,8 +23,15 @@ class Container:
         return Expr(self.sympy.subs(*args, **kwargs), **self.assumptions)
 
     def permute(self, *perms):
-        """Applies the provided permutations in the specified order
-           to the content of the container."""
+        """
+        Permute indices by applying permutation operators P_pq.
+
+        Parameters
+        ----------
+        *perms : tuple
+            Permutations to apply to the wrapped object. Permutations are
+            applied one after another in the order they are provided.
+        """
         sub = {}
         for p, q in perms:
             addition = {p: q, q: p}
@@ -102,6 +110,31 @@ class Container:
 
 
 class Expr(Container):
+    """
+    Wrapper for an algebraic expression.
+
+    Parameters
+    ----------
+    e :
+        The algebraic expression to wrap, e.g., a sympy.Add or sympy.Mul object
+    real : bool, optional
+        Whether the expression is represented in a real orbital basis.
+    sym_tensors: list[str], optional
+        Names of tensors with bra-ket-symmetry, i.e.,
+        d^{pq}_{rs} = d^{rs}_{pq}. Adjusts the corresponding tensors to
+        correctly represent this additional symmetry if they are not aware
+        of it yet.
+    antisym_tensors: list[str], optional
+        Names of tensors with bra-ket-antisymmetry, i.e.,
+        d^{pq}_{rs} = - d^{rs}_{pq}. Adjusts the corresponding tensors to
+        correctly represent this additional antisymmetry if they are not
+        aware of it yet.
+    target_idx: list[Index] | list[str], optional
+        Target indices of the expression. By default the Einstein sum
+        convention will be used to identify target and contracted indices,
+        which is not sufficient in all cases.
+    """
+
     def __init__(self, e, real: bool = False, sym_tensors: list[str] = None,
                  antisym_tensors: list[str] = None,
                  target_idx: list[Index] = None):
@@ -131,7 +164,7 @@ class Expr(Container):
 
     def __len__(self):
         # 0 has length 1
-        if self.type == 'expr':
+        if isinstance(self.sympy, Add):
             return len(self.args)
         else:
             return 1
@@ -141,6 +174,7 @@ class Expr(Container):
 
     @property
     def assumptions(self) -> dict:
+        """The assumptions currently applied to the expression."""
         return {'real': self.real,
                 'sym_tensors': self.sym_tensors,
                 'antisym_tensors': self.antisym_tensors,
@@ -148,26 +182,33 @@ class Expr(Container):
 
     @property
     def real(self) -> bool:
+        """Whether the expression is represented in a real orbital basis."""
         return self._real
 
     @property
     def sym_tensors(self) -> tuple:
+        """Lists tensors with bra-ket-symmetry the container knows about."""
         return tuple(sorted(self._sym_tensors))
 
     @property
     def antisym_tensors(self) -> tuple:
+        """
+        Lists tensors with bra-ket-antisymmetry the container knows about.
+        """
         return tuple(sorted(self._antisym_tensors))
 
     @property
     def provided_target_idx(self) -> None | tuple[Index]:
+        """Returns the target indices provided by the user."""
         return self._target_idx
 
     @property
     def sympy(self):
+        """Returns content of the container."""
         return self._expr
 
     @property
-    def type(self) -> str:
+    def type_as_str(self) -> str:
         if isinstance(self.sympy, Add):
             return 'expr'
         elif isinstance(self.sympy, Mul):
@@ -177,9 +218,18 @@ class Expr(Container):
 
     @property
     def terms(self) -> tuple['Term']:
+        """Returns all terms the expression contains."""
         return tuple(Term(self, i) for i in range(len(self)))
 
     def set_sym_tensors(self, sym_tensors: list[str]) -> None:
+        """
+        Add bra-ket-symmetry to tensors according to their name.
+        Note that it is only formally possible to remove tensors from
+        sym_tensors, because the original state of a tensor is lost when the
+        bra-ket-symmetry is applied, i.e., after bra-ket-symmetry was added to
+        a tensor d^{p}_{p} it is not knwon whether it's original state was
+        d^{p}_{p} or d^{p}_{q}.
+        """
         if not all(isinstance(t, str) for t in sym_tensors):
             raise Inputerror("Symmetric tensors need to be provided as str.")
         sym_tensors = set(sym_tensors)
@@ -190,6 +240,14 @@ class Expr(Container):
             self._apply_tensor_braket_sym()
 
     def set_antisym_tensors(self, antisym_tensors: list[str]) -> None:
+        """
+        Add bra-ket-antisymmetry to tensors according to their name.
+        Note that it is only formally possible to remove tensors from
+        antisym_tensors, because the original state of a tensor is lost when
+        the bra-ket-antisymmetry is applied, i.e., after bra-ket-symmetry was
+        added to a tensor d^{p}_{p} it is not knwon whether it's original state
+        was d^{p}_{p} or d^{p}_{q}.
+        """
         if not all(isinstance(t, str) for t in antisym_tensors):
             raise Inputerror("Tensors with antisymmetric bra ket symemtry need"
                              "to be provided as string.")
@@ -199,6 +257,11 @@ class Expr(Container):
             self._apply_tensor_braket_sym()
 
     def set_target_idx(self, target_idx: None | list[str | Index]) -> None:
+        """
+        Set the target indices of the expression. Only necessary if the
+        Einstein sum contension is not sufficient to determine them
+        automatically.
+        """
         if target_idx is None:
             self._target_idx = None
         else:
@@ -207,10 +270,11 @@ class Expr(Container):
                                             key=sort_idx_canonical))
 
     def make_real(self):
-        """Makes the expression real by removing all 'c' in tensor names.
-           This only renames the tensor, but there might be more to simplify
-           by swapping bra/ket.
-           """
+        """
+        Represent the expression in a real orbital basis.
+        - names of complex conjugate t-amplitudes, for instance t1cc -> t1
+        - adds bra-ket-symmetry to the fock matrix and the ERI.
+        """
         # need to have the option return_sympy at lower levels, because
         # this function may be called upon instantiation
 
@@ -236,19 +300,23 @@ class Expr(Container):
         return self
 
     def block_diagonalize_fock(self):
-        """Block diagonalize the Fock matrix, i.e. all terms that contain off
-           diagonal Fock matrix blocks (f_ov/f_vo) are set to 0."""
+        """
+        Block diagonalize the Fock matrix, i.e. all terms that contain off
+        diagonal Fock matrix blocks (f_ov/f_vo) are set to 0.
+        """
         self.expand()
         self._expr = Add(*[t.block_diagonalize_fock(return_sympy=True)
                            for t in self.terms])
         return self
 
     def diagonalize_fock(self):
-        """Represent the expression in the canonical orbital basis, i.e. the
-           Fock matrix is a diagonal matrix. Because it is not possible to
-           determine the target indices in the resulting expression according
-           to the Einstein sum convention, the current target indices will
-           be set manually in the result."""
+        """
+        Represent the expression in the canonical orbital basis, where the
+        Fock matrix is diagonal. Because it is not possible to
+        determine the target indices in the resulting expression according
+        to the Einstein sum convention, the current target indices will
+        be set manually in the resulting expression.
+        """
         # expand to get rid of polynoms as much as possible
         self.expand()
         diag = 0
@@ -259,6 +327,7 @@ class Expr(Container):
         return self
 
     def rename_tensor(self, current, new):
+        """Changes the name of a tensor from current to new."""
         if not isinstance(current, str) or not isinstance(new, str):
             raise Inputerror("Old and new tensor name need to be provided as "
                              "strings.")
@@ -269,20 +338,21 @@ class Expr(Container):
         return self
 
     def expand_antisym_eri(self):
-        """Expands the antisymmetric ERI using chemists notation
-           <pq||rs> = (pr|qs) - (ps|qr).
-           ERI's in chemists notation are denoted as 'v'
-           Currently this only works for real orbitals, i.e., for
-           symmetric ERI's <pq||rs> = <rs||pq>."""
+        """
+        Expands the antisymmetric ERI using chemists notation
+        <pq||rs> = (pr|qs) - (ps|qr).
+        ERI's in chemists notation are denoted as 'v' Currently this only works
+        for real orbitals, i.e., for symmetric ERI's <pq||rs> = <rs||pq>."""
         self._expr = Add(*[term.expand_antisym_eri(return_sympy=True)
                            for term in self.terms])
         self._sym_tensors.add("v")
         return self
 
     def use_symbolic_denominators(self):
-        """Replace all orbital energy denominators in the expression by
-           tensors, e.g., (e_a + e_b - e_i - e_j)^{-1} will be replaced by
-           D^{ab}_{ij}, where D is a SymmetricTensor."""
+        """
+        Replace all orbital energy denominators in the expression by tensors,
+        e.g., (e_a + e_b - e_i - e_j)^{-1} will be replaced by D^{ab}_{ij},
+        where D is a SymmetricTensor."""
         symbolic_denom = 0
         for term in self.terms:
             symbolic_denom += term.use_symbolic_denominators()
@@ -293,9 +363,11 @@ class Expr(Container):
         return self
 
     def use_explicit_denominators(self):
-        """Switch to an explicit representation of orbital energy denominators
-           by replacing all symbolic denominators by their explicit counter
-           part, i.e., D^{ij}_{ab} -> (e_i + e_j - e_a - e_b)^{-1}."""
+        """
+        Switch to an explicit representation of orbital energy denominators by
+        replacing all symbolic denominators by their explicit counter part,
+        i.e., D^{ij}_{ab} -> (e_i + e_j - e_a - e_b)^{-1}.
+        """
         self._expr = Add(*[term.use_explicit_denominators(return_sympy=True)
                            for term in self.terms])
         return self
@@ -321,6 +393,14 @@ class Expr(Container):
         return self
 
     def factor(self, num=None):
+        """
+        Tries to factors the expression. Note: this only works for simple cases
+
+        Parameters
+        ----------
+        num : optional
+            Number to factor in the expression.
+        """
         from sympy import factor, nsimplify
         if num is None:
             self._expr = factor(self.sympy)
@@ -332,7 +412,7 @@ class Expr(Container):
         return self
 
     def expand_intermediates(self):
-        """Insert all defined intermediates in the expression."""
+        """Expand all known intermediates in the expression."""
         # TODO: only expand specific intermediates
         # need to adjust the target indices -> not necessarily possible to
         # determine them after expanding intermediates
@@ -345,22 +425,43 @@ class Expr(Container):
 
     @property
     def idx(self):
-        """Returns all indices that occur in the expression. Indices that occur
-           multiple times will be listed multiple times."""
+        """
+        Returns all indices that occur in the expression. Indices that occur
+        multiple times will be listed multiple times.
+        """
         idx = [s for t in self.terms for s in t.idx]
         return tuple(sorted(idx, key=sort_idx_canonical))
 
     def copy(self):
+        """
+        Creates a new container with the same expression and assumptions.
+        The wrapped expression will not be copied.
+        """
         return Expr(self.sympy, **self.assumptions)
 
     def to_latex_str(self, terms_per_line: int = None,
                      only_pull_out_pref: bool = False,
                      spin_as_overbar: bool = False) -> str:
-        """Returns a Latex string of the canonical form of the expr.
-           The output may be adjusted to be compatible with the Latex align
-           environment, where the parameter terms_per_line defines the number
-           of terms that should be printed per line.
-           """
+        """
+        Transforms the expression to a latex string.
+
+        Parameters
+        ----------
+        terms_per_line: int, optional
+            Returns the expression using a 'align' environment with
+            the provided number of terms per line.
+        only_pull_out_pref: bool, optional
+            Use the 'latex' printout from sympy, while prefactors are printed
+            in front of each term. This avoids long fractions with a huge
+            number of tensors in the numerator and only a factor in the
+            denominator.
+        spin_as_overbar: bool, optional
+            Instead of printing the spin of an index as suffix (idxname_spin)
+            use an overbar for beta spin and no indication for alpha. Because
+            alpha indices and indices without spin are not distinguishable
+            anymore, this only works if all indices have a spin set (the
+            expression is completely represented in spatial orbitals).
+        """
         tex_terms = [term.to_latex_str(only_pull_out_pref, spin_as_overbar)
                      for term in self.terms]
         # remove '+' in the first term
@@ -433,6 +534,18 @@ class Expr(Container):
 
 
 class Term(Container):
+    """
+    Wrapper for a single term (a*b*c) that is part of an expression wrapped
+    by an instance of the Expr class. Even if the expression only consists
+    of a single term, it should be wrapped by the Expr class.
+
+    Parameters
+    ----------
+    e : Expr
+        The 'Expr' the term is contained in.
+    pos : int
+        The index of the term in the expression (sympy.Add object).
+    """
     def __new__(cls, e, pos=None, **assumptions):
         if isinstance(e, (Expr, Polynom)):
             if not isinstance(pos, int):
@@ -450,7 +563,8 @@ class Term(Container):
         return latex(self.sympy)
 
     def __len__(self):
-        return len(self.args) if self.type == 'term' else 1
+        content = self.sympy
+        return len(content.args) if isinstance(content, Mul) else 1
 
     def __getattr__(self, attr):
         return getattr(self.sympy, attr)
@@ -485,38 +599,43 @@ class Term(Container):
 
     @property
     def sympy(self):
+        """Returns content of the container."""
         # can't cache directly, because getattr is overwritten
         if self._sympy is not None:
             return self._sympy
 
-        if self.expr.type in ['expr', 'polynom']:
-            sympy = self._expr.args[self._pos]
-        else:
+        if len(self._expr) == 1:
             sympy = self._expr.sympy
+        else:
+            sympy = self._expr.args[self._pos]
         self._sympy = sympy
         return self._sympy
 
     @property
-    def type(self) -> str:
+    def type_as_str(self) -> str:
         return 'term' if isinstance(self.sympy, Mul) else 'obj'
 
     @cached_property
     def objects(self) -> tuple['Obj']:
+        """Returns all objects the term contains."""
         return tuple(Obj(self, i) for i in range(len(self)))
 
     @property
     def tensors(self) -> tuple['Obj']:
         """Returns all tensor objects in the term."""
-        return tuple(o for o in self.objects if 'tensor' in o.type)
+        return tuple(o for o in self.objects
+                     if isinstance(o.base, SymbolicTensor))
 
     @property
     def deltas(self) -> tuple['Obj']:
         """Returns all delta objects of the term."""
-        return tuple(o for o in self.objects if o.type == 'delta')
+        return tuple(o for o in self.objects
+                     if isinstance(o.base, KroneckerDelta))
 
     @property
     def polynoms(self) -> tuple['Polynom']:
-        return tuple(o for o in self.objects if o.type == 'polynom')
+        """Returns all polynoms contained in the term."""
+        return tuple(o for o in self.objects if isinstance(o, Polynom))
 
     @cached_property
     def order(self) -> int:
@@ -526,7 +645,7 @@ class Term(Container):
     @cached_property
     def memory_requirements(self):
         """Returns the memory requirements of the largest object of the term.
-           """
+        """
         from .generate_code import mem_scaling
 
         mem = []
@@ -539,8 +658,17 @@ class Term(Container):
         return max(mem)
 
     def make_real(self, return_sympy=False):
-        """Makes the expression real by removing all 'c' in the names
-           of the t-amplitudes."""
+        """
+        Represent the tern in a real orbital basis.
+        - names of complex conjugate t-amplitudes, for instance t1cc -> t1
+        - adds bra-ket-symmetry to the fock matrix and the ERI.
+
+        Parameters
+        ----------
+        return_sympy : bool, optional
+            If this is set no Expr object will be returned but the raw
+            unwrapped term.
+        """
         real_term = Mul(*(o.make_real(return_sympy=True)
                           for o in self.objects))
         if return_sympy:
@@ -557,8 +685,10 @@ class Term(Container):
         return Expr(term_with_sym, **self.assumptions)
 
     def block_diagonalize_fock(self, return_sympy=True):
-        """Block diagonalize the Fock matrix, i.e. if the term contains a off
-           diagonal Fock matrix block (f_ov/f_vo) it is set to 0."""
+        """
+        Block diagonalize the Fock matrix, i.e. if the term contains a off
+        diagonal Fock matrix block (f_ov/f_vo) it is set to 0.
+        """
         bl_diag = Mul(*[o.block_diagonalize_fock(return_sympy=True)
                         for o in self.objects])
         if return_sympy:
@@ -567,10 +697,19 @@ class Term(Container):
 
     def diagonalize_fock(self, target: tuple[Index] = None,
                          return_sympy: bool = False):
-        """Transform the term in the canonical basis without loosing any
-           information. It might not be possible to determine the
-           target indices in the result according to the einstein sum
-           convention."""
+        """
+        Represent the term in the canonical orbital basis, where the
+        Fock matrix is diagonal. Because it is not possible to
+        determine the target indices in the resulting term according
+        to the Einstein sum convention, the current target indices will
+        be set manually in the resulting term.
+
+        Parameters
+        ----------
+        return_sympy : bool, optional
+            If this is set no Expr object will be returned but the raw
+            unwrapped object.
+        """
         if target is None:
             target = self.target
         sub = {}
@@ -611,12 +750,12 @@ class Term(Container):
         #    and therefore not sorted -> will produce a random result.
         contracted = {}
         for s in self.contracted:
-            if (key := (s.space, s.spin)) not in contracted:
+            if (key := s.space_and_spin) not in contracted:
                 contracted[key] = []
             contracted[key].append(s)
         used = {}
         for s in set(self.target):
-            if (key := (s.space, s.spin)) not in used:
+            if (key := s.space_and_spin) not in used:
                 used[key] = set()
             used[key].add(s.name)
 
@@ -651,7 +790,15 @@ class Term(Container):
             return Expr(substituted, **self.assumptions)
 
     def rename_tensor(self, current, new, return_sympy: bool = False):
-        """Rename tensors in a terms. Returns a new expr instance."""
+        """
+        Rename tensors in a terms.
+
+        Parameters
+        ----------
+        return_sympy : bool, optional
+            If this is set no Expr object will be returned but the raw
+            unwrapped object.
+        """
         renamed = Mul(*(o.rename_tensor(current, new, return_sympy=True)
                         for o in self.objects))
         if return_sympy:
@@ -681,6 +828,7 @@ class Term(Container):
 
     def expand_intermediates(self, target: tuple = None,
                              return_sympy: bool = False):
+        """Expand all known intermediates in the term."""
         if target is None:
             target = self.target
         expanded = Mul(*[o.expand_intermediates(target, return_sympy=True)
@@ -695,11 +843,12 @@ class Term(Container):
     @cached_member
     def symmetry(self, only_contracted: bool = False,
                  only_target: bool = False) -> dict[tuple, int]:
-        """Determines the symmetry of the term with respect to index
-           permutations, also taking bra_ket symmetry into account.
-           By default all indices of the term are considered.
-           However, by setting either only_contracted or only_target the
-           indices may be restricted to the respective subspace."""
+        """
+        Determines the symmetry of the term with respect to index permutations.
+        By default all indices of the term are considered. However, by setting
+        either only_contracted or only_target the indices may be restricted to
+        the respective subset of indices.
+        """
         from itertools import combinations, permutations, chain, product
         from math import factorial
         from .indices import split_idx_string
@@ -736,12 +885,13 @@ class Term(Container):
         if len(indices) < 2:  # not enough indices for any permutations
             return {}
 
-        # split in occ and virt indices (only generate P_oo, P_vv and P_gg)
+        # split in occ and virt indices to only generate P_oo, P_vv and P_gg.
+        # Similarly, the spin has to be the same!
         sorted_idx = {}
         for s in indices:
-            if (sp := s.space[0]) not in sorted_idx:
-                sorted_idx[sp] = []
-            sorted_idx[sp].append(s)
+            if (key := s.space_and_spin) not in sorted_idx:
+                sorted_idx[key] = []
+            sorted_idx[key].append(s)
 
         space_perms: list[list] = []  # find all permutations within a space
         for idx_list in sorted_idx.values():
@@ -783,9 +933,10 @@ class Term(Container):
 
     @property
     def symmetrize(self):
-        """Symmetrise the term by applying all found symmetries to the term
-           that only involve contracted indices and adding up the normalized
-           result."""
+        """
+        Symmetrise the term by applying all found symmetries to the term that
+        only involve contracted indices and adding up the normalized result.
+        """
         from sympy import Rational
         symmetry = self.symmetry(only_contracted=True)
         res = self.sympy
@@ -797,9 +948,11 @@ class Term(Container):
 
     @property
     def contracted(self) -> tuple[Index]:
-        """Returns all contracted indices of the term. If no target indices
-           have been provided to the parent expression, the Einstein sum
-           convention will be applied."""
+        """
+        Returns all contracted indices of the term. If no target indices
+        have been provided to the parent expression, the Einstein sum
+        convention will be applied.
+        """
 
         # target indices have been provided -> no need to count indices
         if (target := self.provided_target_idx) is not None:
@@ -809,9 +962,11 @@ class Term(Container):
 
     @property
     def target(self) -> tuple[Index]:
-        """Returns all target indices of the term. If no target indices
-           have been provided to the parent expression, the Einstein sum
-           convention will be applied."""
+        """
+        Returns all target indices of the term. If no target indices have been
+        provided to the parent expression, the Einstein sum convention will
+        be applied.
+        """
         # dont cache target and contracted to allow them to react to
         # modifications of the assumptions
 
@@ -822,8 +977,10 @@ class Term(Container):
 
     @cached_property
     def idx(self) -> tuple[Index]:
-        """Returns all indices that occur in the term. Indices that occur
-           multiple times will be listed multiple times."""
+        """
+        Returns all indices that occur in the term. Indices that occur multiple
+        times will be listed multiple times.
+        """
         return tuple(s for s, n in self._idx_counter for _ in range(n + 1))
 
     @cached_property
@@ -843,7 +1000,7 @@ class Term(Container):
     def prefactor(self):
         """Returns the prefactor of the term."""
         return nsimplify(
-            Mul(*(o.sympy for o in self.objects if o.type == 'prefactor')),
+            Mul(*(o.sympy for o in self.objects if o.sympy.is_number)),
             rational=True
         )
 
@@ -854,7 +1011,11 @@ class Term(Container):
 
     @cached_property
     def pattern(self) -> dict:
-        """Determins the pattern of the indices in the term."""
+        """
+        Determins the pattern of the indices in the term. This is a (kind of)
+        readable string hash for each index that is based upon the positions
+        the index appears and the coupling of the objects.
+        """
 
         coupl = self.coupling()
         pattern = {}
@@ -862,7 +1023,7 @@ class Term(Container):
             positions = o.crude_pos()
             c = f"_{'_'.join(sorted(coupl[i]))}" if i in coupl else None
             for s, pos in positions.items():
-                key = s.space[0] + s.spin
+                key = s.space_and_spin
                 if key not in pattern:
                     pattern[key] = {}
                 if s not in pattern[key]:
@@ -880,11 +1041,11 @@ class Term(Container):
     @cached_member
     def coupling(self, include_target_idx: bool = True,
                  include_exponent: bool = True) -> dict[int, list]:
-        """Returns the coupling between the objects in the term, where two
-           objects are coupled when they share common indices. Only the
-           coupling of non unique objects is returned, i.e., the coupling
-           of e.g. a t2_1 amplitude is only returned if there is another one in
-           the same term."""
+        """
+        Returns the coupling between the objects in the term, where two objects
+        are coupled when they share common indices. Only the coupling of non
+        unique objects is returned, i.e., the coupling of e.g. a t2_1 amplitude
+        is only returned if there is another one in the same term."""
         from collections import Counter
         # 1) collect all the couplings (e.g. if a index s occurs at two tensors
         #    t and V: the crude_pos of s at t will be extended by the crude_pos
@@ -916,9 +1077,10 @@ class Term(Container):
         return coupling
 
     def use_symbolic_denominators(self):
-        """Replace all orbital energy denominators in the expression by
-           tensors, e.g., (e_a + e_b - e_i - e_j)^{-1} will be replaced by
-           D^{ab}_{ij}, where D is a SymmetricTensor."""
+        """
+        Replace all orbital energy denominators in the expression by tensors,
+        e.g., (e_a + e_b - e_i - e_j)^{-1} will be replaced by D^{ab}_{ij},
+        where D is a SymmetricTensor."""
         from .eri_orbenergy import EriOrbenergy
 
         term = EriOrbenergy(self)
@@ -927,9 +1089,11 @@ class Term(Container):
         return symbolic_denom * term.pref * term.num.sympy * term.eri.sympy
 
     def use_explicit_denominators(self, return_sympy: bool = False):
-        """Switch to an explicit representation of orbital energy denominators
-           by replacing all symbolic denominators by their explicit counter
-           part, i.e., D^{ij}_{ab} -> (e_i + e_j - e_a - e_b)^{-1}."""
+        """
+        Switch to an explicit representation of orbital energy denominators by
+        replacing all symbolic denominators by their explicit counter part,
+        i.e., D^{ij}_{ab} -> (e_i + e_j - e_a - e_b)^{-1}.
+        """
         explicit_denom = Mul(*[obj.use_explicit_denominators(return_sympy=True)
                                for obj in self.objects])
         if return_sympy:
@@ -938,11 +1102,13 @@ class Term(Container):
             return Expr(explicit_denom, **self.assumptions)
 
     def split_orb_energy(self) -> dict:
-        """Splits the term in a orbital energy fraction and a remainder, e.g.
-           (e_i + e_j) / (e_i + e_j - e_a - e_b) * (tensor1 * tensor2). To
-           this end all polynoms that only contain e tensors are collected to
-           form the numerator and denominator, while the rest of the term
-           is collected in the remainder."""
+        """
+        Splits the term in a orbital energy fraction and a remainder, e.g.
+        (e_i + e_j) / (e_i + e_j - e_a - e_b) * (tensor1 * tensor2).
+        To this end all polynoms that only contain 'e' tensors are collected to
+        form the numerator and denominator, while the rest of the term is
+        collected in the remainder. Prefactors are collected in the numerator.
+        """
 
         assumptions = self.assumptions
         assumptions['target_idx'] = self.target
@@ -951,10 +1117,10 @@ class Term(Container):
                'remainder': Expr(1, **assumptions)}
         for o in self.objects:
             base, exponent = o.base_and_exponent
-            if o.contains_only_orb_energies:
-                key = "denom" if exponent < 0 else "num"
-            elif o.type == 'prefactor':
+            if o.sympy.is_number:
                 key = "num"
+            elif o.contains_only_orb_energies:
+                key = "denom" if exponent < 0 else "num"
             else:
                 key = 'remainder'
             ret[key] *= Pow(base, abs(exponent))
@@ -962,12 +1128,29 @@ class Term(Container):
 
     @property
     def contains_only_orb_energies(self):
+        """Whether the term only contains orbital energies."""
         return all(o.contains_only_orb_energies for o in self.objects
-                   if not o.type == 'prefactor')
+                   if not o.sympy.is_number)
 
     def to_latex_str(self, only_pull_out_pref: bool = False,
                      spin_as_overbar: bool = False):
-        """Returns a Latex string of the canonical form of the term."""
+        """
+        Transforms the term to a latex string.
+
+        Parameters
+        ----------
+        only_pull_out_pref: bool, optional
+            Use the 'latex' printout from sympy, while prefactors are printed
+            in front of each term. This avoids long fractions with a huge
+            number of tensors in the numerator and only a factor in the
+            denominator.
+        spin_as_overbar: bool, optional
+            Instead of printing the spin of an index as suffix (idxname_spin)
+            use an overbar for beta spin and no indication for alpha. Because
+            alpha indices and indices without spin are not distinguishable
+            anymore, this only works if all indices have a spin set (the
+            expression is completely represented in spatial orbitals).
+        """
         # - sign and prefactor
         pref = self.prefactor
         tex_str = "+ " if pref >= 0 else "- "
@@ -981,7 +1164,7 @@ class Term(Container):
         # - latex strings for the remaining objects
         tex_str += " ".join(
             [o.to_latex_str(only_pull_out_pref, spin_as_overbar)
-             for o in self.objects if o.type != 'prefactor']
+             for o in self.objects if not o.sympy.is_number]
         )
         # Catch 1 or -1
         if tex_str.strip() in ('+', '-'):
@@ -990,18 +1173,25 @@ class Term(Container):
 
     def optimized_contractions(self, target_indices: str = None,
                                max_tensor_dim: int = None):
-        """Determine the contraction scheme of the term with the lowest
-           computational scaling. The target indices can be provided as
-           string, e.g., 'ijab' for a Doubles amplitude or 'iajb' for the
-           p-h/p-h matrix block. If no target indices are provided the
-           target indices will be sorted canonical."""
+        """
+        Determine the contraction scheme of the term with the lowest
+        computational scaling and the lowest memory requirements.
+
+        Parameters
+        ----------
+        target_indices: str, optional
+            The target indices of the term. If not provided the target indices
+            of the term will be used after bringing them in canonical order.
+        max_tensor_dim: int, optional
+            Upper bound for the dimensionality of intermediate results.
+        """
         from .generate_code import scaling, contraction_data, mem_scaling
         from collections import Counter
         from itertools import combinations
 
         def extract_data(o):
             if isinstance(o, Obj):
-                return o.idx, o.pretty_name
+                return o.idx, o.longname
             elif isinstance(o, contraction_data):
                 return o.target, 'contraction'
             else:
@@ -1099,9 +1289,12 @@ class Term(Container):
         idx_occurences = {}
         n = 0
         for o in self.objects:
-            # nonsym_tensor / antisym_tensor / delta
-            if 'tensor' in (o_type := o.type) or o_type == 'delta':
-                if (exp := o.exponent) < 0:
+            if o.sympy.is_number:  # skip prefactors
+                continue
+            # antisym-/sym-, nonsymtensors, amplitudes, deltas
+            base, exp = o.base_and_exponent
+            if isinstance(base, (SymbolicTensor, KroneckerDelta)):
+                if exp < 0:
                     raise NotImplementedError("Contractions for divisions not "
                                               f"implemented: {self}.")
                 # count on how many objects (with exponent 1) an index occures
@@ -1113,8 +1306,6 @@ class Term(Container):
                 for i in range(n, exp+n):
                     relevant_objects[i] = o
                     n += 1
-            elif o_type == 'prefactor':  # prefactor
-                continue
             else:  # polynom / create / annihilate / NormalOrdered
                 raise NotImplementedError("Contractions not implemented for "
                                           "polynoms, creation and annihilation"
@@ -1151,7 +1342,7 @@ class Term(Container):
             else:  # contraction -> trace is possible
                 contracted = tuple(s for s, n in Counter(indices).items()
                                    if n > 1)
-            return [contraction_data((i,), (indices,), (o.pretty_name,),
+            return [contraction_data((i,), (indices,), (o.longname,),
                                      contracted, target_indices, scal)]
 
         if max_tensor_dim is not None and not isinstance(max_tensor_dim, int):
@@ -1188,6 +1379,17 @@ class Term(Container):
 
 
 class Obj(Container):
+    """
+    Wrapper for a single Object, e.g., a tensor that is part of a term wrapped
+    by the Term class.
+
+    Parameters
+    ----------
+    t : Term
+        The 'Term' instance the object is contained in.
+    pos : int
+        The index of the object in the term (sympy.Mul object).
+    """
     def __new__(cls, t, pos=None, **assumptions):
         types = {
             NO: lambda o: 'no',
@@ -1253,14 +1455,25 @@ class Obj(Container):
     def sympy(self):
         if self._sympy is not None:
             return self._sympy
+
+        if len(self.term) == 1:
+            return self.term.sympy
         else:
-            return self.term.sympy if len(self.term) == 1 \
-                else self.term.args[self._pos]
+            return self.term.args[self._pos]
 
     def make_real(self, return_sympy: bool = False):
-        """Removes all 'c' in the names of t-amplitudes."""
+        """
+        Represent the object in a real orbital basis by renaming the
+        complex conjugate t-amplitudes, for instance t1cc -> t1.
 
-        if 'tensor' in self.type and self.is_amplitude:
+        Parameters
+        ----------
+        return_sympy : bool, optional
+            If this is set no Expr object will be returned but the raw
+            unwrapped object.
+        """
+
+        if isinstance(self.base, AntiSymmetricTensor) and self.is_amplitude:
             old = self.name
             new = old.replace('c', '')
             if old == new:
@@ -1268,8 +1481,8 @@ class Obj(Container):
             else:
                 base, exponent = self.base_and_exponent
                 real_obj = Pow(
-                    AntiSymmetricTensor(new, base.upper, base.lower,
-                                        base.bra_ket_sym), exponent
+                    Amplitude(new, base.upper, base.lower, base.bra_ket_sym),
+                    exponent
                 )
         else:
             real_obj = self.sympy
@@ -1280,10 +1493,11 @@ class Obj(Container):
         return Expr(real_obj, **assumptions)
 
     def _apply_tensor_braket_sym(self, return_sympy: bool = False):
-        if self.type in ["antisymtensor", "symtensor"]:
-            base, exponent = self.base_and_exponent
+        # antisymtensor, symtensor or amplitude
+        base, exponent = self.base_and_exponent
+        if isinstance(base, AntiSymmetricTensor):
             bra_ket_sym = None
-            if (name := self.name) in self.sym_tensors and \
+            if (name := base.name) in self.sym_tensors and \
                     base.bra_ket_sym is not S.One:
                 bra_ket_sym = 1
             elif name in self.antisym_tensors and \
@@ -1301,6 +1515,15 @@ class Obj(Container):
         return Expr(obj_with_sym, **self.assumptions)
 
     def block_diagonalize_fock(self, return_sympy: bool = False):
+        """
+        Block diagonalize the Fock matrix, i.e. if the object is part of an
+        off-diagonal fock matrix block, it is set to 0.
+        Parameters
+        ----------
+        return_sympy : bool, optional
+            If this is set no Expr object will be returned but the raw
+            unwrapped object.
+        """
         if self.name == 'f' and self.space in ['ov', 'vo']:
             bl_diag = 0
         else:
@@ -1355,20 +1578,17 @@ class Obj(Container):
     def rename_tensor(self, current: str, new: str,
                       return_sympy: bool = False):
         """Renames a tensor object."""
-        if 'tensor' in (o_type := self.type) and self.name == current:
-            base, exponent = self.base_and_exponent
-            if o_type == "antisymtensor":
-                base = AntiSymmetricTensor(
-                        new, base.upper, base.lower, base.bra_ket_sym
-                    )
-            elif o_type == "nonsymtensor":
-                base = NonSymmetricTensor(new, base.indices)
-            elif o_type == "symtensor":
-                base = SymmetricTensor(
-                    new, base.upper, base.lower, base.bra_ket_sym
-                )
+        base, exponent = self.base_and_exponent
+        if isinstance(base, SymbolicTensor) and base.name == current:
+            if isinstance(base, AntiSymmetricTensor):
+                args = (new, base.upper, base.lower, base.bra_ket_sym)
+            elif isinstance(base, NonSymmetricTensor):
+                args = (new, base.indices)
+            else:
+                raise TypeError(f"Unknown tensor type {type(base)}.")
+            base = base.__class__(*args)
             new_obj = Pow(base, exponent)
-        else:
+        else:  # delta / create / annihilate / pref
             new_obj = self.sympy
         if return_sympy:
             return new_obj
@@ -1376,11 +1596,12 @@ class Obj(Container):
             return Expr(new_obj, **self.assumptions)
 
     def expand_antisym_eri(self, return_sympy: bool = True):
-        """Expands the antisymmetric ERI using chemists notation
-           <pq||rs> = (pr|qs) - (ps|qr).
-           ERI's in chemists notation are denoted as 'v'
-           Currently this only works for real orbitals, i.e., for
-           symmetric ERI's <pq||rs> = <rs||pq>."""
+        """
+        Expands the antisymmetric ERI using chemists notation
+        <pq||rs> = (pr|qs) - (ps|qr).
+        ERI's in chemists notation are denoted as 'v'. Currently this only
+        works for real orbitals, i.e., for symmetric ERI's <pq||rs> = <rs||pq>.
+        """
         if self.name == "V":
             # ensure that the eri is Symmetric. Otherwise we would introduce
             # additional unwanted symmetry in the result
@@ -1406,6 +1627,7 @@ class Obj(Container):
 
     @property
     def base_and_exponent(self) -> tuple:
+        """Return base and exponent of the object."""
         base = self.sympy
         if isinstance(base, Pow):
             return base.args
@@ -1414,6 +1636,7 @@ class Obj(Container):
 
     @property
     def base(self):
+        """Returns the base (base^exponent) of the object."""
         base = self.sympy
         if isinstance(base, Pow):
             return base.args[0]
@@ -1422,35 +1645,44 @@ class Obj(Container):
 
     @property
     def exponent(self):
+        """Returns the exponent of the object."""
         return self.sympy.args[1] if isinstance(self.sympy, Pow) else 1
 
-    @cached_property
-    def type(self) -> str:
-        types = {
-            AntiSymmetricTensor: 'antisymtensor',
-            KroneckerDelta: 'delta',
-            F: 'annihilate',
-            Fd: 'create',
-            NonSymmetricTensor: 'nonsymtensor',
-            SymmetricTensor: 'symtensor',
-        }
-        try:
-            return types[type(self.base)]
-        except KeyError:
-            if self.is_number:
-                return 'prefactor'
-            raise NotImplementedError(f"Unknown object: {self.sympy} of type "
-                                      f"{type(self.sympy)}.")
+    @property
+    def type_as_str(self) -> str:
+        """Returns a string that describes the type of the object."""
+        if self.sympy.is_number:
+            return "prefactor"
+        obj = self.base
+        if isinstance(obj, Amplitude):
+            return "amplitude"
+        elif isinstance(obj, SymmetricTensor):
+            return "symtensor"
+        elif isinstance(obj, AntiSymmetricTensor):
+            return "antisymtensor"
+        elif isinstance(obj, NonSymmetricTensor):
+            return "nonsymtensor"
+        elif isinstance(obj, KroneckerDelta):
+            return "delta"
+        elif isinstance(obj, F):
+            return "annihilate"
+        elif isinstance(obj, Fd):
+            return "create"
+        else:
+            raise TypeError(f"Unknown object {self} of type {type(obj)}.")
 
     @property
-    def name(self) -> str:
+    def name(self) -> str | None:
         """Extract the name of tensor objects."""
-        if 'tensor' in self.type:
-            return self.base.symbol.name
+        if isinstance(self.base, SymbolicTensor):
+            return self.base.name
 
     @property
     def is_amplitude(self):
+        """Whether the object is a ground state or ADC amplitude"""
         name = self.name
+        if name is None:
+            return False
         # ADC amplitude or t-amplitude
         return name in ['X', 'Y'] or \
             (name[0] == 't' and name[1:].replace('c', '').isnumeric())
@@ -1460,24 +1692,28 @@ class Obj(Container):
         """Returns the perturbation theoretical order of the obj."""
         from .intermediates import Intermediates
 
-        if 'tensor' in self.type:
+        if isinstance(self.base, SymbolicTensor):
             if (name := self.name) == 'V':  # eri
                 return 1
             # t-amplitudes
             elif name[0] == 't' and name[1:].replace('c', '').isnumeric():
                 return int(name[1:].replace('c', ''))
             # all intermediates
-            itmd_cls = Intermediates().available.get(self.pretty_name, None)
+            itmd_cls = Intermediates().available.get(self.longname, None)
             if itmd_cls is not None:
                 return itmd_cls.order
         return 0
 
     @property
-    def pretty_name(self):
+    def longname(self):
+        """
+        Returns a more exhaustive name of the object. Used for intermediates
+        and transformation to code.
+        """
         name = None
-        if 'tensor' in (o_type := self.type):
-            name = self.name
-            base = self.base
+        base = self.base
+        if isinstance(base, SymbolicTensor):
+            name = base.name
             # t-amplitudes
             if name[0] == 't' and name[1:].replace('c', '').isnumeric():
                 if len(base.upper) != len(base.lower):
@@ -1505,14 +1741,15 @@ class Obj(Container):
                 pass
             else:  # arbitrary other tensor
                 name += f"_{self.space}"
-        elif o_type == 'delta':  # deltas -> d_oo / d_vv
+        elif isinstance(base, KroneckerDelta):  # deltas -> d_oo / d_vv
             name = f"d_{self.space}"
         return name
 
     @property
-    def bra_ket_sym(self):
+    def bra_ket_sym(self) -> int | None:
+        """Returns the bra-ket-symmetry of the object."""
         # nonsym_tensors are assumed to not have any symmetry atm!.
-        if self.type in ["antisymtensor", "symtensor"]:
+        if isinstance(self.base, AntiSymmetricTensor):
             return self.base.bra_ket_sym
 
     def symmetry(self, only_contracted: bool = False,
@@ -1537,32 +1774,25 @@ class Obj(Container):
         return new_expr.terms[0].symmetry(only_target=True)
 
     @cached_property
-    def idx(self) -> tuple:
-        """Return the indices of the canonical ordered object."""
+    def idx(self) -> tuple[Index]:
+        """Return the indices of the object."""
 
-        get_idx = {
-            'antisymtensor': lambda o: (
-                o.lower + o.upper if self.is_amplitude else o.upper + o.lower
-            ),
-            'delta': lambda o: o.args,
-            'annihilate': lambda o: o.args,
-            'create': lambda o: o.args,
-            'nonsymtensor': lambda o: o.indices,
-            'symtensor': lambda o: (
-                o.lower + o.upper if self.is_amplitude else o.upper + o.lower
-            ),
-        }
-        try:
-            return get_idx[self.type](self.base)
-        except KeyError:
-            if self.type == 'prefactor':
-                return tuple()
-            else:
-                raise KeyError(f'Unknown obj type {self.type} for obj {self}')
+        if self.sympy.is_number:  # prefactor
+            return tuple()
+
+        obj = self.base
+        # Antisym-, Sym-, Nonsymtensor, Amplitude, Kroneckerdelta
+        if isinstance(obj, (SymbolicTensor, KroneckerDelta)):
+            return obj.idx
+        elif isinstance(obj, FermionicOperator):  # F and Fd
+            return obj.args
+        else:
+            raise TypeError("Can not determine the indices for an obj of type"
+                            f"{type(obj)}: {self}.")
 
     @property
     def space(self) -> str:
-        """Returns the canonical space of tensors and other objects."""
+        """Returns the index space (tensor block) of the object."""
         return "".join(s.space[0] for s in self.idx)
 
     @property
@@ -1576,6 +1806,8 @@ class Obj(Container):
         """Returns the 'crude' position of the indices in the object.
            (e.g. only if they are located in bra/ket, not the exact position)
            """
+        if self.sympy.is_number:  # for prefactor an empty dict is returned
+            return {}
 
         if include_target_idx:
             target = self.term.target
@@ -1583,8 +1815,9 @@ class Obj(Container):
         ret = {}
         description = self.description(include_exponent=include_exponent,
                                        include_target_idx=include_target_idx)
-        o_type = self.type
-        if o_type in ["antisymtensor", "symtensor"]:
+        obj = self.base
+        # antisym-, symtensor and amplitude
+        if isinstance(obj, AntiSymmetricTensor):
             tensor = self.base
             for uplo, idx_tpl in \
                     {'u': tensor.upper, 'l': tensor.lower}.items():
@@ -1610,26 +1843,27 @@ class Obj(Container):
                     if s not in ret:
                         ret[s] = []
                     ret[s].append(pos)
-        elif o_type == "nonsymtensor":
+        elif isinstance(obj, NonSymmetricTensor):  # nonsymtensor
             # target idx position is already in the description
             idx = self.idx
             for i, s in enumerate(idx):
                 if s not in ret:
                     ret[s] = []
                 ret[s].append(f"{description}_{i}")
-        elif o_type in ["delta", "annihilate", "create"]:
+        # delta, create, annihilate
+        elif isinstance(obj, (KroneckerDelta, F, Fd)):
             for s in self.idx:
                 if s not in ret:
                     ret[s] = []
                 ret[s].append(description)
-        # for prefactor a empty dict is returned
         return ret
 
     def expand_intermediates(self, target: tuple = None,
                              return_sympy: bool = False):
+        """Expand the object if it is a known intermediate."""
         from .intermediates import Intermediates
         # intermediates only defined for tensors
-        if 'tensor' not in self.type:
+        if not isinstance(self.base, SymbolicTensor):
             if return_sympy:
                 return self.sympy
             else:
@@ -1639,7 +1873,7 @@ class Obj(Container):
             target = self.term.target
 
         itmd = Intermediates()
-        itmd = itmd.available.get(self.pretty_name, None)
+        itmd = itmd.available.get(self.longname, None)
         if itmd is None:
             expanded = self.sympy
         else:
@@ -1663,20 +1897,20 @@ class Obj(Container):
                     include_target_idx: bool = True) -> str:
         """A string that describes the object."""
 
-        descr = self.type
+        descr = self.type_as_str
         if descr == 'prefactor':
             return descr
 
         if include_target_idx:
             target = self.term.target
 
-        if descr in ['antisymtensor', 'symtensor']:
+        if descr in ['antisymtensor', 'amplitude', 'symtensor']:
             base, exponent = self.base_and_exponent
             # - space separated in upper and lower part
             upper, lower = base.upper, base.lower
             data_u = "".join(s.space[0] + s.spin for s in upper)
             data_l = "".join(s.space[0] + s.spin for s in lower)
-            descr += f"-{self.name}-{data_u}-{data_l}"
+            descr += f"-{base.name}-{data_u}-{data_l}"
             # names of target indices, also separated in upper and lower part
             # indices in upper and lower have been sorted upon tensor creation!
             if include_target_idx:
@@ -1692,7 +1926,9 @@ class Obj(Container):
                     else:  # bra ket sym or antisym
                         # target indices in both spaces
                         if target_u and target_l:
-                            descr += f"-{'-'.join(sorted([target_u, target_l]))}"  # noqa E501
+                            descr += (
+                                f"-{'-'.join(sorted([target_u, target_l]))}"
+                            )
                         else:  # only in 1 space at least 1 target idx
                             descr += f"-{target_u + target_l}"
             if include_exponent:  # add exponent to description
@@ -1708,7 +1944,8 @@ class Obj(Container):
             if include_exponent:
                 descr += f"-{self.exponent}"
         elif descr in ['delta', 'annihilate', 'create']:
-            descr += f"-{self.space}"
+            data = "".join(s.space[0] + s.spin for s in self.idx)
+            descr += f"-{data}"
             if include_target_idx and \
                     (target_str := "".join(s.name for s in self.idx
                                            if s in target)):
@@ -1719,12 +1956,17 @@ class Obj(Container):
 
     @property
     def allowed_spin_blocks(self) -> tuple[str] | None:
-        """Returns the valid spin blocks of tensors."""
+        """Returns the valid spin blocks of the object."""
         from .intermediates import Intermediates
         from itertools import product
 
-        if "tensor" in (t := self.type):
-            name = self.name
+        if self.sympy.is_number:  # prefactor
+            return None
+
+        obj = self.base
+        # antisym-, sym-, nonsymtensor and amplitude
+        if isinstance(obj, SymbolicTensor):
+            name = obj.name
             if name == "V":  # hardcode the ERI spin blocks
                 return ("aaaa", "abab", "abba", "baab", "baba", "bbbb")
             elif name == "D": # Delta = 1 / orbenergy diff
@@ -1751,17 +1993,15 @@ class Obj(Container):
                 return ("aa", "bb")
             elif name == "f":  # Fock matrix
                 return ("aa", "bb")
-        elif t == "delta":
+        elif isinstance(obj, KroneckerDelta):  # delta
             # spins have to be equal
             return ("aa", "bb")
-        elif t in ["create", "annihilate"]:
+        elif isinstance(obj, FermionicOperator):  # create / annihilate
             # both spins allowed!
             return ("a", "b")
-        elif t == "prefactor":
-            return None
         # the known allowed spin blocks of eri, t-amplitudes and deltas
         # may be used to generate the spin blocks of other intermediates
-        itmd = Intermediates().available.get(self.pretty_name, None)
+        itmd = Intermediates().available.get(self.longname, None)
         if itmd is None:
             warnings.warn(f"Could not determine valid spin blocks for {self}.",
                           RuntimeWarning,)
@@ -1770,9 +2010,11 @@ class Obj(Container):
             return itmd.allowed_spin_blocks
 
     def use_explicit_denominators(self, return_sympy: bool = False):
-        """Switch to an explicit representation of orbital energy denominators
-           by replacing all symbolic denominators by their explicit counter
-           part, i.e., D^{ij}_{ab} -> (e_i + e_j - e_a - e_b)^{-1}."""
+        """
+        Switch to an explicit representation of orbital energy denominators by
+        replacing all symbolic denominators by their explicit counter part,
+        i.e., D^{ij}_{ab} -> (e_i + e_j - e_a - e_b)^{-1}.+
+        """
         if self.name == "D":
             tensor, exponent = self.base_and_exponent
             # upper indices are added, lower indices subtracted
@@ -1791,12 +2033,13 @@ class Obj(Container):
 
     @property
     def contains_only_orb_energies(self):
+        """Whether the term only contains orbital energies."""
         # all orb energies should be nonsym_tensors actually
         return self.name == 'e' and len(self.idx) == 1
 
     def to_latex_str(self, only_pull_out_pref: bool = False,
                      spin_as_overbar: bool = False) -> str:
-        """Returns a Latex string of the canonical form of the object."""
+        """Returns a latex string for the object."""
 
         def format_indices(indices: tuple[Index]) -> str:
             if indices is None:
@@ -1860,20 +2103,29 @@ class Obj(Container):
                     tex_string = f"\\bigl({tex_string}\\bigr)^{{{exp}}}"
             return tex_string
 
-        if only_pull_out_pref or 'tensor' not in (o_type := self.type):
+        obj = self.base
+        if only_pull_out_pref or not isinstance(obj, SymbolicTensor):
             return self.__str__()
 
         # Only For Tensors!
-        tensor = self.base
-        if o_type in ['antisymtensor', 'symtensor']:  # t/ADC-amplitudes etc.
-            kwargs = {'upper': tensor.upper, 'lower': tensor.lower}
-        elif o_type in ['nonsymtensor']:  # orb energy + some special itmds
-            kwargs = {'lower': tensor.indices}
+        if isinstance(obj, AntiSymmetricTensor):  # amplitudes, ERI, fock, ...
+            kwargs = {'upper': obj.upper, 'lower': obj.lower}
+        elif isinstance(obj, NonSymmetricTensor):  # orb energy + some itmds
+            kwargs = {'lower': obj.indices}
         return tensor_string(**kwargs)
 
 
 class NormalOrdered(Obj):
-    """Container for a normal ordered operator string."""
+    """
+    Container for a normal ordered operator string.
+
+    Parameters
+    ----------
+    t : Term
+        The 'Term' instance the operator string is contained in.
+    pos : int
+        The index of the NO object in the term.
+    """
     def __new__(cls, t, pos=None, **assumptions):
         if isinstance(t, Term):
             if not isinstance(pos, int):
@@ -1917,11 +2169,15 @@ class NormalOrdered(Obj):
             )
 
     @property
-    def type(self):
+    def type_as_str(self):
         return 'NormalOrdered'
 
     @cached_property
-    def idx(self):
+    def idx(self) -> tuple[Index]:
+        """
+        Indices of the normal ordered operator string. Indices that appear
+        multiple times will be listed multiple times.
+        """
         objects = self.objects
         exp = self.exponent
         ret = tuple(s for o in objects for s in o.idx for _ in range(exp))
@@ -1961,15 +2217,14 @@ class NormalOrdered(Obj):
             else:
                 op_str = idx[0].space[0] + idx[0].spin
             # add a plus for creation operators
-            if (type := o.type) == 'create':
+            base = o.base
+            if isinstance(base, Fd):
                 op_str += '+'
-            elif type == 'annihilate':
-                pass
-            else:
+            elif not isinstance(base, F):  # has to be annihilate here
                 raise TypeError("Unexpected content for NormalOrdered "
                                 f"container: {o}, {type(o)}.")
             obj_contribs.append(op_str)
-        return f"{self.type}-{'-'.join(sorted(obj_contribs))}"
+        return f"{self.type_as_str}-{'-'.join(sorted(obj_contribs))}"
 
     @property
     def allowed_spin_blocks(self) -> tuple[str]:
@@ -1985,7 +2240,16 @@ class NormalOrdered(Obj):
 
 
 class Polynom(Obj):
-    """Container for a polynom (a+b+c)^x."""
+    """
+    Container for a polynom (a+b+c)^x.
+
+    Parameters
+    ----------
+    t : Term
+        The 'Term' instance the polynom is a part of.
+    pos : int
+        The index of the polynom in the term.
+    """
     def __new__(cls, t, pos=None, **assumptions):
         if isinstance(t, Term):
             if not isinstance(pos, int):
@@ -2013,17 +2277,30 @@ class Polynom(Obj):
         return tuple(Term(self, i) for i in range(len(self)))
 
     @property
-    def type(self):
+    def type_as_str(self):
         return 'polynom'
 
     @cached_property
     def idx(self):
-        """Returns all indices that occur in the polynom. Indices that occur
-           multiple times will be listed multiple times."""
+        """
+        Returns all indices that occur in the polynom. Indices that occur
+        multiple times will be listed multiple times.
+        """
         idx = [s for t in self.terms for s in t.idx]
         return tuple(sorted(idx, key=sort_idx_canonical))
 
-    def make_real(self, return_sympy: bool = False) -> Expr:
+    def make_real(self, return_sympy: bool = False):
+        """
+        Represent the polynom in a real orbital basis.
+        - names of complex conjugate t-amplitudes, for instance t1cc -> t1
+        - adds bra-ket-symmetry to the fock matrix and the ERI.
+
+        Parameters
+        ----------
+        return_sympy : bool, optional
+            If this is set no Expr object will be returned but the raw
+            unwrapped object.
+        """
         real = Add(*[t.make_real(return_sympy=True) for t in self.terms])
         real = Pow(real, self.exponent)
         if return_sympy:
@@ -2041,6 +2318,10 @@ class Polynom(Obj):
         return Expr(with_sym, **self.assumptions)
 
     def block_diagonalize_fock(self, return_sympy: bool = False):
+        """
+        Block diagonalize the fock matrix in the polynom by removing terms
+        that contain elements of off-diagonal blocks.
+        """
         bl_diag = Add(*(t.block_diagonalize_fock(return_sympy=True)
                         for t in self.terms))
         bl_diag = Pow(bl_diag, self.exponent)
@@ -2054,6 +2335,7 @@ class Polynom(Obj):
 
     def rename_tensor(self, current: str, new: str,
                       return_sympy: bool = False):
+        """Rename a tensor from current to new."""
         renamed = Add(*(term.rename_tensor(current, new, return_sympy=True)
                         for term in self.terms))
         renamed = Pow(renamed, self.exponent)
@@ -2063,6 +2345,12 @@ class Polynom(Obj):
             return Expr(renamed, **self.assumptions)
 
     def expand_antisym_eri(self, return_sympy: bool = False):
+        """
+        Expands the antisymmetric ERI using chemists notation
+        <pq||rs> = (pr|qs) - (ps|qr).
+        ERI's in chemists notation are denoted as 'v'. Currently this only
+        works for real orbitals, i.e., for symmetric ERI's <pq||rs> = <rs||pq>.
+        """
         expanded = Add(*(term.expand_antisym_eri(return_sympy=True)
                          for term in self.terms))
         expanded = Pow(expanded, self.exponent)
@@ -2085,6 +2373,7 @@ class Polynom(Obj):
 
     def expand_intermediates(self, target: tuple = None,
                              return_sympy: bool = False):
+        """Expands all known intermediates in the polynom."""
         if target is None:
             target = self.term.target
 
@@ -2099,6 +2388,11 @@ class Polynom(Obj):
             return Expr(expanded, **assumptions)
 
     def use_explicit_denominators(self, return_sympy: bool = False):
+        """
+        Switch to an explicit representation of orbital energy denominators by
+        replacing all symbolic denominators by their explicit counter part,
+        i.e., D^{ij}_{ab} -> (e_i + e_j - e_a - e_b)^{-1}.
+        """
         explicit_denom = Add(*[t.use_explicit_denominators(return_sympy=True)
                                for t in self.terms])
         explicit_denom = Pow(explicit_denom, self.exponent)
@@ -2118,10 +2412,12 @@ class Polynom(Obj):
 
     @property
     def contains_only_orb_energies(self):
+        """Whether the poylnom only contains orbital energy tensors."""
         return all(term.contains_only_orb_energies for term in self.terms)
 
     def to_latex_str(self, only_pull_out_pref: bool = False,
                      spin_as_overbar: bool = False):
+        """Returns a latex string for the polynom."""
         tex_str = " ".join(
             [term.to_latex_str(only_pull_out_pref, spin_as_overbar)
              for term in self.terms]

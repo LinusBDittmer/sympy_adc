@@ -5,15 +5,28 @@ from math import factorial
 from .indices import (
     n_ov_from_space, repeated_indices, Indices, extract_names
 )
-from .misc import (cached_member, Inputerror, transform_to_tuple,
-                   validate_input, process_arguments)
+from .misc import cached_member, Inputerror, transform_to_tuple, validate_input
 from .simplify import simplify
 from .func import gen_term_orders, wicks, evaluate_deltas
 from .groundstate import GroundState
 from .expr_container import Expr
 from .logger import log
+from .sympy_objects import Amplitude
 
 class IntermediateStates:
+    """
+    Class for constructing epxressions for Precursor or Intermediate states.
+
+    Parameters
+    ----------
+    mp : GroundState
+        Representation of the underlying ground state. Used to generate
+        ground state related expressions.
+    variant : str, optional
+        The ADC variant for which Intermediates are constructed, e.g.,
+        'pp', 'ip' or 'ea' for PP-, IP- or EA-ADC expressions, respectively
+        (default: 'pp').
+    """
     def __init__(self, mp, variant="pp"):
         if not isinstance(mp, GroundState):
             raise Inputerror("Invalid ground state object.")
@@ -34,24 +47,32 @@ class IntermediateStates:
         self.variant = variant
         self.min_space = variants[variant]
 
-    @process_arguments
     @cached_member
-    def precursor(self, order, space, braket, indices):
-        """Method to obtain precursor states.
-           The indices of the precursor wavefunction need to be provided as
-           string in the input (e.g. indices='ia' produces |PSI_{ia}^#>).
-           """
+    def precursor(self, order: int, space: str, braket: str, indices: str):
+        """
+        Constructs expressions for precursor states.
+
+        Parameters
+        ----------
+        order : int
+            The perturbation theoretical order.
+        space : str
+            The excitation space of the desired precursor state, e.g., 'ph' or
+            'pphh' for singly or doubly excited precursor states.
+        braket : str
+            Defines whether a bra or ket precursor state is constructed.
+        indices : str
+            The indices of the precursor state.
+        """
         from sympy.physics.secondquant import F, Fd, NO, Dagger
 
         # check input parameters
-        space = transform_to_tuple(space)
         indices = transform_to_tuple(indices)
         validate_input(order=order, space=space, braket=braket,
                        indices=indices)
         if len(indices) != 1:
             raise Inputerror(f"{indices} are not valid for constructing a "
                              "precursor state.")
-        space = space[0]
         indices = indices[0]
         # check that the space is valid for the given ADC variant
         if not self.validate_space(space):
@@ -72,7 +93,7 @@ class IntermediateStates:
 
         # in contrast to the gs, here the operators are ordered as
         # abij instead of abji in order to stay consistent with the
-        # ADC results.
+        # ADC literature.
         operators = 1
         if idx.get('virt'):
             operators *= Mul(*[Fd(s) for s in idx['virt']])
@@ -137,7 +158,7 @@ class IntermediateStates:
             gs_psi.clear()
 
         # iterate over lower excitated spaces
-        lower_spaces = self.__generate_lower_spaces(space)
+        lower_spaces = self._generate_lower_spaces(space)
         for lower_space in lower_spaces:
             # get generic unique indices to generate the lower_isr_states.
             n_ov = n_ov_from_space(lower_space)
@@ -198,14 +219,23 @@ class IntermediateStates:
               f" {latex(res)}")
         return res
 
-    @process_arguments
     @cached_member
-    def overlap_precursor(self, order, block, indices):
-        """Method to obtain precursor overlap matrices
-           for a given order and space. Indices of the resulting
-           overlap matrix element need to be provided in the form 'ia,jb'
-           which will produce S_{ia,jb}.
-           """
+    def overlap_precursor(self, order: int, block: str, indices: str):
+        """
+        Constructs expressions for elements of the overlap matrix of the
+        precursor states.
+
+        Parameters
+        ----------
+        order : int
+            The perturbation theoretical order.
+        block : str
+            The block of the overlap matrix, e.g., 'ph,ph' for an element of
+            the 1p-1h/1p-1h block.
+        indices : str
+            The indices of the overlap matrix element, e.g., 'ia,jb' for
+            S_{ia,jb}.
+        """
 
         # no need to do more validation here -> will be done in precursor
         block = transform_to_tuple(block)
@@ -248,13 +278,24 @@ class IntermediateStates:
         log(f"Build overlap {block} S_{indices}^({order}) = {res}")
         return res.sympy
 
-    @process_arguments
     @cached_member
-    def s_root(self, order, block, indices):
-        """Method to obtain S^{-0.5} of a given order.
-           Indices for the resulting matrix element are required.
-           e.g. indices='ia,jb' produces (S^{-0.5})_{ia,jb}
-           """
+    def s_root(self, order: int, block: str, indices: str):
+        """
+        Constructs expression for elements of the inverse square root of the
+        precursor overlap matrix (S^{-0.5})_{I,J} by expanding
+        S^{-0.5} in a Taylor series.
+
+        Parameters
+        ----------
+        order : int
+            The perturbation theoretical order.
+        block : str
+            The desired matrix block, e.g., 'ph,pphh' for an element of the
+            1p-1h/2p-2h block.
+        indices : str
+            The indices of the matrix element, e.g., 'ia,jkcd' for
+            (S^{-0.5})_{ia,jkcd}.
+        """
 
         block = transform_to_tuple(block)
         indices = transform_to_tuple(indices)
@@ -292,8 +333,9 @@ class IntermediateStates:
                 relevant_idx = idx[:len(term)] + [idx[-1]]
                 i1 = pref
                 for o in term:
-                    i1 *= self.overlap_precursor(order=o, block=block,
-                                                 indices=(relevant_idx[:2]))
+                    i1 *= self.overlap_precursor(
+                        order=o, block=block, indices=tuple(relevant_idx[:2])
+                    )
                     del relevant_idx[0]
                     if i1 is S.Zero:
                         break
@@ -304,22 +346,31 @@ class IntermediateStates:
         log(f"Build {block} S_root_{indices}^({order}) = {latex(res)}")
         return res
 
-    @process_arguments
     @cached_member
-    def intermediate_state(self, order, space, braket, indices):
-        """Method for constructing an intermediate state using the provided
-           indices.
-           """
+    def intermediate_state(self, order: int, space: str, braket: str,
+                           indices: str):
+        """
+        Constructs expressions for intermediate states.
 
+        Parameters
+        ----------
+        order : int
+            The perturbation theoretical order.
+        space : str
+            The excitation space of the desired intermediate state, e.g.,
+            'ph' and 'pphh' for singly and doubly excited intermediate states.
+        braket : str
+            Defines whether a bra or ket intermediate state is constructed.
+        indices : str
+            The indices of the intermediate state.
+        """
         indices = transform_to_tuple(indices)
-        space = transform_to_tuple(space)
         validate_input(order=order, space=space, braket=braket,
                        indices=indices)
         if len(indices) != 1:
             raise Inputerror(f"{indices} are not valid for "
                              "constructing an intermediate state.")
         indices = indices[0]
-        space = space[0]
 
         # generate additional indices for the precursor state
         n_ov = n_ov_from_space(space)
@@ -349,10 +400,21 @@ class IntermediateStates:
               f"{braket} = {latex(res)}")
         return res
 
-    @process_arguments
     @cached_member
-    def overlap_isr(self, order, block, indices):
-        """Computes a block of the overlap matrix in the ISR basis."""
+    def overlap_isr(self, order: int, block: str, indices: str):
+        """
+        Computes a block of the overlap matrix in the basis of intermediate
+        states.
+
+        Parameters
+        ----------
+        order : int
+            The perturbation theoretical order.
+        block : str
+            The desired matrix block.
+        indices : str
+            The indices of the matrix element.
+        """
 
         block = transform_to_tuple(block)
         indices = transform_to_tuple(indices)
@@ -388,42 +450,53 @@ class IntermediateStates:
               latex(res))
         return res
 
-    @process_arguments
     @cached_member
-    def amplitude_vector(self, indices, lr="right"):
-        """Returns an amplitude vector using the provided indices.
-           """
-        from .sympy_objects import AntiSymmetricTensor
+    def amplitude_vector(self, indices: str, lr: str = "right"):
+        """
+        Constructs an amplitude vector with the provided indices.
+
+        Parameters
+        ----------
+        indices : str
+            The indices of the amplitude vector.
+        lr : str, optional
+            Whether a left (X) or right (Y) amplitude vector is constructed
+            (default: 'right').
+        """
 
         validate_input(indices=indices, lr=lr)
 
         idx = self.indices.get_indices(indices)
-        # add empty list if e.g. only occ indices have been provided (IP)
-        for ov in ["occ", "virt"]:
-            if ov not in idx:
-                idx[ov] = []
+        occ = idx["occ"] if "occ" in idx else []
+        virt = idx["virt"] if "virt" in idx else []
 
-        t_string = {
-            "right": "Y",
-            "left": "X",
-        }
-        return AntiSymmetricTensor(
-            t_string[lr], tuple(idx["virt"]), tuple(idx["occ"])
-        )
+        name = "Y" if lr == "right" else "X"
+        return Amplitude(name, virt, occ)
 
-    def expand_S_taylor(self, order, min_order=2):
-        """Computes the all n-h order contributions to the Taylor expansion of
-           'S^{-0.5} = (1 + x)^{-0.5} with 'x = sum_{n=1} S^(n)'.
-           min_order defines the lowest order at n where the overlap matrix
-           is non-zero, excluding the zeroth order contribution.
+    def expand_S_taylor(self, order: int, min_order=2) -> list:
+        """
+        Performs a Taylor expansion of the inverse square root of the
+        overlap matrix
+        S^{0.5} = (1 + x)^{-0.5} with x = sum_{n=1} S^(n)
+        returning all n'th-order contributions.
 
-           Returns two dicts:
-           The first one contains the prefactors of the series x + x² + ...
-           The second one contains the orders of S that contribute to the
-           n-th order term. (like (4,) and (2,2) for fourth order)
-           In both dicts the exponent of x in the Taylor expansion is used
-           as key.
-           """
+        Parameters
+        ----------
+        order : int
+            The perturbation theoretical order.
+        min_order : int, optional
+            The lowest order at which the overlap matrix S has a non-vanishing
+            caontribution excluding the zeroth order contribution
+            (default: 2).
+
+        Returns
+        -------
+        list
+            Iterable containing tuples of prefactors and perturbation
+            theoretical orders, for instance, with a min_order of 2 the
+            5'th order contributions read
+            [(-1/2, [(5,)]), (3/8, [(2, 3), (3, 2)])].
+        """
         from sympy import diff, nsimplify, symbols
 
         validate_input(order=order, min_order=min_order)
@@ -448,9 +521,17 @@ class IntermediateStates:
             ret.append((pref, orders))
         return ret
 
-    def __generate_lower_spaces(self, space_str):
-        """Generate all lower spaces for the provided space string, e.g.
-           ['ph'] for 'pphh'."""
+    def _generate_lower_spaces(self, space_str: str) -> list:
+        """
+        Generates all strings of lower excited configurations for a given
+        excitation space.
+
+        Parameters
+        ----------
+        space_str : str
+            The space for which to construct lower excitation spaces, e.g.,
+            ['ph'] for 'pphh'.
+        """
         lower_spaces = []
         for _ in range(min(space_str.count('p'), space_str.count('h'))):
             space_str = space_str.replace('p', '', 1).replace('h', '', 1)
@@ -460,12 +541,17 @@ class IntermediateStates:
         return lower_spaces
 
     def validate_space(self, space_str: str) -> bool:
-        """Checks wheter the provided space is a valid space for
-           the current ADC variant.
-           """
+        """
+        Checks whether the given space is valid for the current ADC variant.
+
+        Parameters
+        ----------
+        space_str : str
+            The excitation space to validate.
+        """
 
         if space_str in self.min_space:
             return True
 
-        lower_spaces = self.__generate_lower_spaces(space_str)
+        lower_spaces = self._generate_lower_spaces(space_str)
         return any(sp in self.min_space for sp in lower_spaces)
